@@ -1,0 +1,41 @@
+{
+  "name": "@lloyd/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lloyd commercial-underwriting workstation (frontend)",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "lucide-react": "^0.544.0",
+    "next": "^15.5.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^4.5.2",
+    "eslint": "^9.35.0",
+    "eslint-config-next": "^15.5.7",
+    "jsdom": "^26.1.0",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
