@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #f3ede3;
+  --color-panel: #faf6ef;
+  --color-panel-2: #f1eadc;
+  --color-navy: #0e2436;
+  --color-navy-2: #173044;
+  --color-ink: #142433;
+  --color-muted: #5c6b78;
+  --color-line: #d4cbbb;
+  --color-emerald: #1f6b4a;
+  --color-emerald-soft: #e4f0ea;
+  --color-amber: #9a6700;
+  --color-amber-soft: #f5ebd3;
+  --color-crimson: #8f3a3a;
+  --color-crimson-soft: #f3e4e4;
+  --font-sans: var(--font-ibm-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-ibm-plex-serif), "IBM Plex Serif", ui-serif, Georgia, serif;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-navy);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.paper-shadow {
+  box-shadow: 0 1px 0 rgba(14, 36, 54, 0.04), 0 8px 24px rgba(14, 36, 54, 0.04);
+}
