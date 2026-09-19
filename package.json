@@ -1,0 +1,42 @@
+{
+  "name": "lloyd",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "workspaces": [
+    "apps/api",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "tsx apps/api/src/server.ts",
+    "build": "tsc",
+    "start": "node dist/apps/api/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint apps/api packages tests",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "test:edge": "apps/edge-gateway/.venv/bin/python -m pytest apps/edge-gateway/tests -q",
+    "lint:edge": "apps/edge-gateway/.venv/bin/ruff check apps/edge-gateway/gateway apps/edge-gateway/tests tests/smoke_gateway.py",
+    "test:smoke": "npm run build && apps/edge-gateway/.venv/bin/python tests/smoke_gateway.py",
+    "format:check": "prettier --check \"apps/api/**/*.ts\" \"packages/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "dependencies": {
+    "fastify": "^5.6.0",
+    "mongodb": "^6.20.0",
+    "pg": "^8.16.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/pg": "^8.15.0",
+    "eslint": "^9.35.0",
+    "prettier": "^3.9.8",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.43.0",
+    "vitest": "^4.1.11"
+  }
+}

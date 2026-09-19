@@ -11,6 +11,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { classNames } from "@/lib/format";
+import { LloydLogo } from "./LloydLogo";
 
 const items = [
   { href: "/dashboard", label: "Submission Queue", icon: LayoutDashboard },
@@ -25,9 +26,9 @@ export function Sidebar({ onOpenJourney }: { onOpenJourney: () => void }) {
 
   return (
     <aside className="flex h-full w-[228px] shrink-0 flex-col bg-navy text-paper">
-      <div className="border-b border-white/10 px-4 py-4">
-        <p className="font-serif text-[22px] leading-none tracking-tight">Lloyd</p>
-        <p className="mt-1 text-[11px] text-white/65">Commercial property workstation</p>
+      <div className="border-b border-line bg-panel px-4 py-4">
+        <LloydLogo />
+        <p className="mt-1.5 text-[11px] text-muted">Commercial property workstation</p>
       </div>
       <nav className="flex-1 px-2 py-3" aria-label="Primary">
         {items.map((item) => {

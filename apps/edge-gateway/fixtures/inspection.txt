@@ -1,0 +1,15 @@
+Synthetic inspection report
+Contact: Jane Canary
+Email: canary.sensitive@example.test
+Phone: 416-555-0188
+Policy: POL-CANARY-9921
+Government ID: 123-45-6789
+Secret: sk-canarysecret0123456789
+Home address: 123 Canary Lane, Toronto ON
+Date of birth: 1980-02-03
+Signature: Jane Canary
+Year built: 2016
+Construction: masonry noncombustible
+Primary risk state: PA
+TIV: 72000000 USD
+Narrative: Inspection verified clear fire exits and maintained sprinkler equipment. Storage areas were tidy and no combustible materials were observed beside electrical equipment. Maintenance records indicate regular inspections. Additional loss runs are required to resolve the underwriting review.
