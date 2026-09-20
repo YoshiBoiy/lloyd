@@ -172,9 +172,20 @@ export function approvalMessage(manifest: ReleaseManifest): string {
   ]);
 }
 
+const FORBIDDEN_VALUE_SHAPES =
+  /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b\d{3}-\d{2}-\d{4}\b|\b(?:sk|api_key|secret)[-_=:][A-Za-z0-9_-]{8,}|(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}/i;
+
+/** Value-shape scan only (email, government ID, credential, phone); safe to run on text joined across blocks. */
+export function assertNoForbiddenValues(text: string): void {
+  if (FORBIDDEN_VALUE_SHAPES.test(text))
+    throw new DomainError(
+      "SENSITIVE_CONTENT",
+      "Sanitized artifact contains a prohibited sensitive pattern",
+    );
+}
+
 export function assertSanitizedText(text: string): void {
-  const forbidden =
-    /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b\d{3}-\d{2}-\d{4}\b|\b(?:sk|api_key|secret)[-_=:][A-Za-z0-9_-]{8,}|(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}/i;
+  const forbidden = FORBIDDEN_VALUE_SHAPES;
   const labeled =
     /(?:home address|property address|street address|government id|signature|date of birth|dob|policy(?: number)?|claim(?: number)?|contact|person name)\s*:\s*([^\n]+)/gi;
   if (
