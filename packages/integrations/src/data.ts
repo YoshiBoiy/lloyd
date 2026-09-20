@@ -10,6 +10,7 @@ import {
   verifyIntake,
   type SanitizedIntake,
 } from "../../contracts/src/index.js";
+import type { VerifiedV2 } from "../../contracts/src/intake-v2.js";
 import type { Decision, Facts } from "../../engine/src/index.js";
 import { requestJson, type Transport } from "./federato.js";
 export interface CaseRecord {
@@ -203,6 +204,9 @@ export const Chunk = z
     contentHash: z.string(),
     vector: z.array(z.number().finite()).length(32),
     state: z.string().optional(),
+    tenantId: z.string().min(1).max(100).optional(),
+    page: z.number().int().positive().optional(),
+    blockId: z.string().max(64).optional(),
   })
   .strict();
 export type Chunk = z.infer<typeof Chunk>;
@@ -259,7 +263,10 @@ export class EvidenceStore {
       const mapping = {
         properties: {
           caseId: { type: "keyword" },
+          tenantId: { type: "keyword" },
           evidenceId: { type: "keyword" },
+          blockId: { type: "keyword" },
+          page: { type: "integer" },
           state: { type: "keyword" },
           observedAt: { type: "date" },
           text: { type: "text" },
@@ -301,6 +308,34 @@ export class EvidenceStore {
       vector: embed(data.artifact.text),
     });
   }
+  /**
+   * Index a verified v2 release one chunk per sanitized block. Chunks are scoped to the tenant and the
+   * case chosen at association time; the released text is never re-derived from anything but the
+   * verified artifacts.
+   */
+  async ingestV2(verified: VerifiedV2, caseId: string) {
+    const { manifest, artifacts } = verified.data;
+    let indexed = 0;
+    for (const artifact of artifacts) {
+      const descriptor = manifest.artifacts.find((d) => d.id === artifact.id);
+      if (!descriptor || !artifact.text.trim()) continue;
+      await this.add({
+        evidenceId: `${manifest.intakeId}:${artifact.id}`,
+        caseId,
+        tenantId: manifest.tenantId,
+        text: artifact.text,
+        sourceUri: `intake-v2://${encodeURIComponent(manifest.intakeId)}/${encodeURIComponent(artifact.id)}`,
+        sourceField: `artifacts.${artifact.id}`,
+        observedAt: manifest.createdAt,
+        contentHash: descriptor.sha256,
+        vector: embed(artifact.text),
+        page: descriptor.page,
+        blockId: descriptor.blockId,
+      });
+      indexed++;
+    }
+    return { indexed };
+  }
   async add(input: Chunk) {
     const c = Chunk.parse(input);
     if (sha256(c.text) !== c.contentHash)
@@ -313,12 +348,19 @@ export class EvidenceStore {
   async search(
     caseId: string,
     query: string,
-    filters: { state?: string; after?: string; before?: string } = {},
+    filters: {
+      state?: string;
+      after?: string;
+      before?: string;
+      tenantId?: string;
+    } = {},
   ) {
     try {
       let lexical: Chunk[], dense: Chunk[];
       if (this.url) {
         const filter: unknown[] = [{ term: { caseId } }];
+        if (filters.tenantId)
+          filter.push({ term: { tenantId: filters.tenantId } });
         if (filters.state) filter.push({ term: { state: filters.state } });
         if (filters.after || filters.before)
           filter.push({
@@ -358,6 +400,7 @@ export class EvidenceStore {
         const rows = [...this.chunks.values()].filter(
           (c) =>
             c.caseId === caseId &&
+            (!filters.tenantId || c.tenantId === filters.tenantId) &&
             (!filters.state || c.state === filters.state) &&
             (!filters.after || c.observedAt >= filters.after) &&
             (!filters.before || c.observedAt <= filters.before),
@@ -406,12 +449,18 @@ export class Telemetry {
     url?: string,
     private secret: string = randomUUID(),
   ) {
-    if (url)
+    if (url) {
+      // Tiger services commonly use a certificate chain accepted by libpq but
+      // rejected by pg's newer strict interpretation of sslmode=require.
+      const connection = new URL(url);
+      if (connection.searchParams.get("sslmode") === "require")
+        connection.searchParams.set("uselibpqcompat", "true");
       this.pool = new pg.Pool({
-        connectionString: url,
+        connectionString: connection.toString(),
         connectionTimeoutMillis: 3000,
         statement_timeout: 3000,
       });
+    }
   }
   async emit(
     caseId: string,

@@ -36,12 +36,58 @@ it("bad JWT issuer/audience fails closed", async () => {
   await expect(auth.get()).rejects.toMatchObject({ category: "AUTH" });
 });
 it("Federato 401 refreshes exactly once", async () => {
+  // The wire schema-discovery response has no top-level "resources" wrapper
+  // (it is the resource map itself) and uses the documented field vocabulary
+  // (`itemSchema` for array items, `resource`/`cardinality` for references),
+  // which normalizeLiveSchema translates into our internal Schema shape.
+  const wireSchema = {
+    DemoSubmission: {
+      fields: {
+        id: { type: "string" },
+        accountName: { type: "string" },
+        submissionType: { type: "string" },
+        lineOfBusiness: { type: "string" },
+        primaryState: { type: "string" },
+        effectiveDate: { type: "string" },
+        expirationDate: { type: "string" },
+        tiv: { type: "number" },
+        premium: { type: "number" },
+        buildingYear: { type: "number" },
+        construction: {
+          type: "array",
+          itemSchema: {
+            type: "object",
+            fields: {
+              tiv: { type: "number" },
+              construction: { type: "string" },
+            },
+          },
+        },
+        losses: {
+          type: "object",
+          fields: {
+            complete: { type: "boolean" },
+            items: {
+              type: "array",
+              itemSchema: {
+                type: "object",
+                fields: {
+                  date: { type: "string" },
+                  amount: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
   const fetch = vi
     .fn()
     .mockResolvedValueOnce(json({ access_token: "one" }))
     .mockResolvedValueOnce(json({}, 401))
     .mockResolvedValueOnce(json({ access_token: "two" }))
-    .mockResolvedValueOnce(json(fixtureSchema));
+    .mockResolvedValueOnce(json(wireSchema));
   const c = new Federato(
     fixtureSchema,
     [],
