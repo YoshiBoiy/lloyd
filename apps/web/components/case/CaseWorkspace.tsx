@@ -41,6 +41,7 @@ export function CaseWorkspace({ id }: { id: string }) {
 
   return (
     <div className="space-y-3">
+      <Link className="text-sm text-teal-800 underline" href={`/cases/${encodeURIComponent(id)}/ask`}>Ask Lloyd · Explore evidence</Link>
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link href="/dashboard" className="text-[12px] text-muted hover:text-navy">

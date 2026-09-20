@@ -3,7 +3,9 @@ import {
   EdgeV2Client,
   EdgeV2Error,
   bootstrapLocalPairing,
+  mergeGatewayHealth,
   parseMixedReplace,
+  resetGatewayHealthMerge,
   resolveEdgeV2Config,
 } from "../lib/api/edge-v2";
 import { isPrivileged, isRelayable, wantsApproval } from "../lib/edge-proxy";
@@ -34,6 +36,58 @@ describe("edge v2 client transports", () => {
     expect(fetch).toHaveBeenCalledWith("/api/edge/local-pairing", { cache: "no-store" });
     await expect(bootstrapLocalPairing(fetchMock(404, { error: { code: "NOT_LOCAL" } }))).resolves.toBeNull();
   });
+
+  it("reopens the USB tunnel and retries a direct call after a disconnect", async () => {
+    const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/api/edge/local-pairing")) {
+        return new Response(JSON.stringify({ pairingToken: "pair-2", approvalToken: "rev-2" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (fetch.mock.calls.filter((call) => String(call[0]).endsWith("/health")).length <= 1) {
+        throw new TypeError("Failed to fetch");
+      }
+      return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const client = new EdgeV2Client(
+      { transport: "direct", baseUrl: "http://127.0.0.1:18001", pairingToken: "pair-1" },
+      fetch,
+    );
+    await expect(client.health()).resolves.toEqual({ status: "ok" });
+    expect(fetch).toHaveBeenCalledWith("/api/edge/local-pairing", { cache: "no-store" });
+    const healthCalls = fetch.mock.calls.filter((call) => String(call[0]).endsWith("/health"));
+    expect(healthCalls).toHaveLength(2);
+    expect(new Headers(healthCalls[1]?.[1]?.headers).get("authorization")).toBe("Bearer pair-2");
+  });
+
+  it("keeps a working camera through a later health probe that fails to reopen the device", () => {
+    resetGatewayHealthMerge();
+    const ok = {
+      status: "ok",
+      version: "2.0.0",
+      outbound: "explicit-release-only",
+      deviceId: "rdk",
+      tenantId: "t",
+      v2Enabled: true,
+      capabilities: {
+        camera: true,
+        ocr: { adapter: "LocalOCR", ready: true },
+        classifier: { ready: true, modelId: "m", artifactDigest: "a", runtimeVersion: "v", calibration: "UNCALIBRATED", error: null },
+        detector: { ready: false, modelId: null, artifactDigest: null, runtimeVersion: null, error: null },
+        qualityPolicy: { version: "quality-v2-provisional", calibrated: false },
+        privacyPolicyVersion: "privacy-v2-text-only",
+        imageRedaction: "TEXT_LAYOUT_ONLY",
+        pairing: { configured: true, reviewers: 1, allowedOrigins: [] },
+      },
+    };
+    const flapped = { ...ok, capabilities: { ...ok.capabilities, camera: false } };
+    expect(mergeGatewayHealth(null, flapped).capabilities.camera).toBe(false);
+    expect(mergeGatewayHealth(null, ok).capabilities.camera).toBe(true);
+    expect(mergeGatewayHealth(null, flapped).capabilities.camera).toBe(true);
+    expect(mergeGatewayHealth(ok, { ...ok, status: "ok" }).capabilities.camera).toBe(true);
+  });
+
 
   it("proxied sessions cannot review, approve or preview — and never send tokens", async () => {
     const fetch = fetchMock();

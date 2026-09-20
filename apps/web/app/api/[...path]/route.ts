@@ -37,6 +37,11 @@ const API_TOKEN = process.env.API_TOKEN ?? "";
 
 async function forward(request: NextRequest, segments: string[]): Promise<NextResponse> {
   const pathName = segments.map(encodeURIComponent).join("/");
+  if (process.env.LLOYD_HOSTED_DEMO === "true") {
+    const { hostedDemo } = await import("@/lib/api/hosted-demo");
+    const response = await hostedDemo(request, `/api/${pathName}${request.nextUrl.search}`);
+    return new NextResponse(response.body, { status: response.status, headers: response.headers });
+  }
   const target = `${API_URL}/api/${pathName}${request.nextUrl.search}`;
   const headers = new Headers({ accept: request.headers.get("accept") ?? "application/json" });
   const contentType = request.headers.get("content-type");
@@ -65,8 +70,7 @@ async function forward(request: NextRequest, segments: string[]): Promise<NextRe
     );
   }
 
-  const responseText = await response.text();
-  return new NextResponse(responseText, {
+  return new NextResponse(response.body, {
     status: response.status,
     headers: {
       "content-type": response.headers.get("content-type") ?? "application/json",

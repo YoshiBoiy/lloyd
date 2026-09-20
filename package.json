@@ -23,7 +23,11 @@
     "test:smoke": "npm run build && apps/edge-gateway/.venv/bin/python tests/smoke_gateway.py && apps/edge-gateway/.venv/bin/python tests/smoke_gateway_v2.py",
     "generate:v2": "tsx scripts/generate-v2-schema.ts && apps/edge-gateway/.venv/bin/python scripts/generate-v2-golden.py",
     "bundle:edge": "apps/edge-gateway/.venv/bin/python scripts/build-edge-bundle.py",
-    "format:check": "prettier --check \"apps/api/**/*.ts\" \"packages/**/*.ts\" \"tests/**/*.ts\""
+    "format:check": "prettier --check \"apps/api/**/*.ts\" \"packages/**/*.ts\" \"tests/**/*.ts\"",
+    "dev:ask-demo": "tsx scripts/serve-ask-demo.ts",
+    "evaluate:ask": "tsx scripts/evaluate-ask-lloyd.ts",
+    "projection:evidence": "tsx scripts/rebuild-evidence-projection.ts",
+    "projection:precedents": "tsx scripts/rebuild-precedent-projection.ts"
   },
   "dependencies": {
     "fastify": "^5.6.0",
@@ -42,5 +46,8 @@
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.43.0",
     "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "esbuild": true
   }
 }

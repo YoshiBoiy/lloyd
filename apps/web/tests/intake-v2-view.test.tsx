@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IntakeV2View } from "../components/intake/IntakeV2View";
 import { IntakeWorkspaceView } from "../components/intake/IntakeWorkspaceView";
 import { resolveIntakeContract } from "../components/intake/IntakeEntry";
 import { getMockLloydApi } from "../lib/api";
-import { getEdgeV2Client } from "../lib/api/edge-v2";
+import { EdgeV2Client, getEdgeV2Client } from "../lib/api/edge-v2";
 
 const HEALTH = {
   status: "ok",
@@ -61,6 +61,7 @@ describe("IntakeV2View", () => {
     );
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     window.sessionStorage.clear();
     delete process.env.NEXT_PUBLIC_EDGE_GATEWAY_URL;
@@ -113,6 +114,88 @@ describe("IntakeV2View", () => {
     expect(health?.url).toBe("http://127.0.0.1:18001/health");
     expect(new Headers(health?.init?.headers).get("authorization")).toBe("Bearer usb-pair");
   });
+
+  it("keeps preview alive across pairing checks and retries a failed camera probe", async () => {
+    process.env.NEXT_PUBLIC_EDGE_GATEWAY_URL = "http://127.0.0.1:18001";
+    getEdgeV2Client(true);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/api/edge/local-pairing")) {
+        return json({ pairingToken: "usb-pair", approvalToken: "usb-rev" });
+      }
+      return json(HEALTH);
+    }));
+    let streamSignal: AbortSignal | undefined;
+    const stream = vi.spyOn(EdgeV2Client.prototype, "streamPreview").mockImplementation((_frame, signal) => {
+      streamSignal = signal;
+      return new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+    });
+    const view = render(<IntakeV2View />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Live preview/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /Live preview/ }));
+    await waitFor(() => expect(stream).toHaveBeenCalledTimes(1));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 4500)); });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(streamSignal?.aborted).toBe(false);
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /Stop preview/ })).toBeEnabled();
+    view.unmount();
+    expect(streamSignal?.aborted).toBe(true);
+  }, 10000);
+
+  it("re-enables start after USB disconnects even when this tab is already paired", async () => {
+    process.env.NEXT_PUBLIC_EDGE_GATEWAY_URL = "http://127.0.0.1:18001";
+    window.sessionStorage.setItem("lloyd.edge.pairingToken", "usb-pair");
+    window.sessionStorage.setItem("lloyd.edge.approvalToken", "usb-rev");
+    getEdgeV2Client(true);
+    let healthAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push({ url });
+        if (String(url).endsWith("/api/edge/local-pairing")) {
+          return json({ pairingToken: "usb-pair", approvalToken: "usb-rev" });
+        }
+        if (String(url).endsWith("/health")) {
+          healthAttempts += 1;
+          if (healthAttempts === 1) throw new TypeError("Failed to fetch");
+          return json({ ...HEALTH, capabilities: { ...HEALTH.capabilities, camera: true } });
+        }
+        return json({ detail: "unexpected" }, 500);
+      }),
+    );
+    render(<IntakeV2View />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start intake" })).toBeEnabled(), { timeout: 4000 });
+    expect(calls.some((c) => String(c.url).endsWith("/api/edge/local-pairing"))).toBe(true);
+    expect(healthAttempts).toBeGreaterThan(1);
+  });
+
+  it("does not keep re-probing health after the gateway answers, which would open-close the camera", async () => {
+    process.env.NEXT_PUBLIC_EDGE_GATEWAY_URL = "http://127.0.0.1:18001";
+    window.sessionStorage.setItem("lloyd.edge.pairingToken", "usb-pair");
+    window.sessionStorage.setItem("lloyd.edge.approvalToken", "usb-rev");
+    getEdgeV2Client(true);
+    let healthAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push({ url });
+        if (String(url).endsWith("/api/edge/local-pairing")) {
+          return json({ pairingToken: "usb-pair", approvalToken: "usb-rev" });
+        }
+        if (String(url).endsWith("/health")) {
+          healthAttempts += 1;
+          return json({ ...HEALTH, capabilities: { ...HEALTH.capabilities, camera: true } });
+        }
+        return json({ detail: "unexpected" }, 500);
+      }),
+    );
+    render(<IntakeV2View />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Live preview/ })).toBeEnabled());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
+    expect(healthAttempts).toBe(1);
+    expect(screen.queryByText(/Camera unavailable/)).not.toBeInTheDocument();
+  });
+
 
   it("recovers an in-flight intake named in the route instead of orphaning it on reload", async () => {
     render(<IntakeV2View intakeId={STATUS.intakeId} />);

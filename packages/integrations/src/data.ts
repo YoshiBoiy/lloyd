@@ -14,6 +14,9 @@ import type { VerifiedV2 } from "../../contracts/src/intake-v2.js";
 import type { Decision, Facts } from "../../engine/src/index.js";
 import { requestJson, type Transport } from "./federato.js";
 export interface CaseRecord {
+  tenantId?: string;
+  humanApproved?: boolean;
+  approvedRationale?: Array<{ evidenceId: string; text: string }>;
   documentIntegrity?: {
     policy: string;
     status: "AUTHENTICITY_REVIEW" | "CLEAR" | "UNAVAILABLE";
@@ -94,11 +97,27 @@ export class CaseStore {
     }
   }
   async saveExtra(kind: string, id: string, value: object) {
+    const expiresAt =
+      "expiresAt" in value && typeof value.expiresAt === "string"
+        ? new Date(value.expiresAt)
+        : undefined;
+    if (
+      this.client &&
+      ["ask_sessions", "ask_answers", "ask_traces"].includes(kind)
+    )
+      await this.client
+        .db("riskgraph")
+        .collection(kind)
+        .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     if (this.client)
       await this.client
         .db("riskgraph")
         .collection(kind)
-        .replaceOne({ key: id }, { key: id, value }, { upsert: true });
+        .replaceOne(
+          { key: id },
+          { key: id, value, ...(expiresAt ? { expiresAt } : {}) },
+          { upsert: true },
+        );
     else this.extras.set(`${kind}:${id}`, structuredClone(value));
   }
   async getExtra<T>(kind: string, id: string): Promise<T | undefined> {
@@ -107,6 +126,81 @@ export class CaseStore {
         await this.client.db("riskgraph").collection(kind).findOne({ key: id })
       )?.value as T | undefined;
     return structuredClone(this.extras.get(`${kind}:${id}`)) as T | undefined;
+  }
+  async pruneAskHistory(now = Date.now()) {
+    const kinds = ["ask_sessions", "ask_answers", "ask_traces"];
+    if (this.client) {
+      for (const kind of kinds)
+        await this.client
+          .db("riskgraph")
+          .collection(kind)
+          .deleteMany({ expiresAt: { $lte: new Date(now) } });
+    } else {
+      for (const [key, value] of this.extras) {
+        if (!kinds.some((kind) => key.startsWith(`${kind}:`))) continue;
+        const expiry = (value as { expiresAt?: string }).expiresAt;
+        if (expiry && Date.parse(expiry) <= now) this.extras.delete(key);
+      }
+    }
+  }
+  async deleteExtra(kind: string, id: string) {
+    if (this.client)
+      await this.client.db("riskgraph").collection(kind).deleteOne({ key: id });
+    else this.extras.delete(`${kind}:${id}`);
+  }
+  async scopedCases(tenantId: string, caseIds: string[]) {
+    if (this.client)
+      return this.client
+        .db("riskgraph")
+        .collection<CaseRecord>("cases")
+        .find(
+          {
+            tenantId,
+            ...(caseIds.includes("*") ? {} : { id: { $in: caseIds } }),
+          },
+          { projection: { _id: 0 } },
+        )
+        .limit(1000)
+        .toArray();
+    return (await this.list())
+      .filter(
+        (c) =>
+          (c.tenantId ??
+            (c.mode === "fixture" ? "carrier-demo" : undefined)) === tenantId &&
+          (caseIds.includes("*") || caseIds.includes(c.id)),
+      )
+      .slice(0, 1000);
+  }
+  async riskPrecedents(
+    tenantId: string,
+    caseIds: string[],
+    current: CaseRecord,
+  ) {
+    const { riskProfile } = await import("../../ask/src/risk.js");
+    if (!this.client) return this.scopedCases(tenantId, caseIds);
+    return this.client
+      .db("riskgraph")
+      .collection<CaseRecord>("cases")
+      .aggregate<CaseRecord>([
+        {
+          $vectorSearch: {
+            index: "ask-risk-v1",
+            path: "riskProfile8",
+            queryVector: riskProfile(current).vector,
+            numCandidates: 200,
+            limit: 50,
+            filter: {
+              tenantId,
+              id: {
+                $ne: current.id,
+                ...(caseIds.includes("*") ? {} : { $in: caseIds }),
+              },
+            },
+          },
+        },
+        { $project: { _id: 0 } },
+      ])
+      .toArray();
   }
   async precedents(current: CaseRecord) {
     const vector = caseVector(current);
@@ -180,6 +274,10 @@ export class CaseStore {
           {
             $set: {
               caseEmbedding: caseVector(record),
+              riskProfile8: (await import("../../ask/src/risk.js")).riskProfile(
+                record,
+              ).vector,
+              riskProfileVersion: "risk-v1",
               embeddingModel: "deterministic-risk-features-v1",
             },
           },
@@ -196,6 +294,13 @@ function cosine(a: number[], b: number[]) {
 export const Chunk = z
   .object({
     evidenceId: z.string(),
+    documentId: z.string().max(250).optional(),
+    title: z.string().max(300).optional(),
+    sourceType: z.string().max(80).optional(),
+    verificationStatus: z.string().max(60).optional(),
+    reliability: z.number().min(0).max(1).optional(),
+    importance: z.number().positive().max(10).optional(),
+    boundingBox: z.array(z.number().min(0).max(1)).length(4).optional(),
     caseId: z.string(),
     text: z.string().max(20_000),
     sourceUri: z.string().min(1),
@@ -262,6 +367,11 @@ export class EvidenceStore {
     if (this.url) {
       const mapping = {
         properties: {
+          documentId: { type: "keyword" },
+          title: { type: "text" },
+          sourceType: { type: "keyword" },
+          sourceUri: { type: "keyword" },
+          verificationStatus: { type: "keyword" },
           caseId: { type: "keyword" },
           tenantId: { type: "keyword" },
           evidenceId: { type: "keyword" },
@@ -290,7 +400,7 @@ export class EvidenceStore {
       else throw new Error("Evidence index unavailable");
     }
   }
-  async ingest(intake: SanitizedIntake, approved: boolean) {
+  async ingest(intake: SanitizedIntake, approved: boolean, tenantId?: string) {
     const data = verifyIntake(
       intake,
       ["lloyd-api", "gemini", "openai", "gptzero", "elasticsearch"],
@@ -298,6 +408,8 @@ export class EvidenceStore {
       approved,
     );
     return this.add({
+      tenantId,
+      documentId: data.manifest.documentId,
       evidenceId: data.manifest.documentId,
       caseId: data.manifest.caseId,
       text: data.artifact.text,
@@ -323,6 +435,7 @@ export class EvidenceStore {
         evidenceId: `${manifest.intakeId}:${artifact.id}`,
         caseId,
         tenantId: manifest.tenantId,
+        documentId: manifest.intakeId,
         text: artifact.text,
         sourceUri: `intake-v2://${encodeURIComponent(manifest.intakeId)}/${encodeURIComponent(artifact.id)}`,
         sourceField: `artifacts.${artifact.id}`,
@@ -340,27 +453,60 @@ export class EvidenceStore {
     const c = Chunk.parse(input);
     if (sha256(c.text) !== c.contentHash)
       throw new Error("Evidence hash mismatch");
-    assertSanitizedText(c.text);
+    assertSanitizedText(JSON.stringify(c));
     const id = sha256(c.contentHash + c.sourceUri + c.sourceField);
     if (this.url) await this.call(`/_doc/${id}`, c, "PUT");
     else this.chunks.set(id, c);
   }
+  async corpus(
+    tenantId: string,
+    caseIds: string[],
+    limit = 1000,
+  ): Promise<Chunk[]> {
+    if (this.url) {
+      const filter: unknown[] = [{ term: { tenantId } }];
+      if (!caseIds.includes("*")) filter.push({ terms: { caseId: caseIds } });
+      const raw = await this.call("/_search", {
+        size: Math.min(limit, 1000),
+        query: { bool: { filter } },
+      });
+      return z
+        .object({
+          hits: z.object({ hits: z.array(z.object({ _source: Chunk })) }),
+        })
+        .parse(raw)
+        .hits.hits.map((h) => h._source);
+    }
+    return [...this.chunks.values()]
+      .filter(
+        (c) =>
+          c.tenantId === tenantId &&
+          (caseIds.includes("*") || caseIds.includes(c.caseId)),
+      )
+      .slice(0, limit);
+  }
   async search(
-    caseId: string,
+    caseId: string | string[],
     query: string,
     filters: {
       state?: string;
       after?: string;
       before?: string;
       tenantId?: string;
+      sourceTypes?: string[];
+      limit?: number;
     } = {},
   ) {
     try {
       let lexical: Chunk[], dense: Chunk[];
       if (this.url) {
-        const filter: unknown[] = [{ term: { caseId } }];
+        const filter: unknown[] = [
+          Array.isArray(caseId) ? { terms: { caseId } } : { term: { caseId } },
+        ];
         if (filters.tenantId)
           filter.push({ term: { tenantId: filters.tenantId } });
+        if (filters.sourceTypes)
+          filter.push({ terms: { sourceType: filters.sourceTypes } });
         if (filters.state) filter.push({ term: { state: filters.state } });
         if (filters.after || filters.before)
           filter.push({
@@ -381,7 +527,19 @@ export class EvidenceStore {
         const results = await Promise.all([
           this.call("/_search", {
             size: 20,
-            query: { bool: { must: [{ match: { text: query } }], filter } },
+            query: {
+              bool: {
+                must: [
+                  {
+                    multi_match: {
+                      query,
+                      fields: ["title^2", "text", "evidenceId^3"],
+                    },
+                  },
+                ],
+                filter,
+              },
+            },
           }),
           this.call("/_search", {
             size: 20,
@@ -399,8 +557,12 @@ export class EvidenceStore {
       } else {
         const rows = [...this.chunks.values()].filter(
           (c) =>
-            c.caseId === caseId &&
+            (Array.isArray(caseId)
+              ? caseId.includes(c.caseId)
+              : c.caseId === caseId) &&
             (!filters.tenantId || c.tenantId === filters.tenantId) &&
+            (!filters.sourceTypes ||
+              filters.sourceTypes.includes(c.sourceType ?? "document")) &&
             (!filters.state || c.state === filters.state) &&
             (!filters.after || c.observedAt >= filters.after) &&
             (!filters.before || c.observedAt <= filters.before),
@@ -435,7 +597,7 @@ export class EvidenceStore {
         mode: this.mode,
         results: [...fused.values()]
           .sort((a, b) => b.score - a.score)
-          .slice(0, 10),
+          .slice(0, Math.min(20, filters.limit ?? 10)),
       };
     } catch {
       return { status: "UNAVAILABLE", mode: this.mode, results: [] };

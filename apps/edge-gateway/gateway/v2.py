@@ -24,7 +24,7 @@ import rfc8785
 from fastapi import Header, HTTPException
 from pydantic import Field
 
-from .capture import OpenCVCamera, preprocess
+from .capture import preprocess
 from .contracts import Destination, Strict
 from .hints import build_hints
 from .inference import LocalClassifier, MODEL_ID_RE, SemanticDetector, unavailable_classification
@@ -353,7 +353,7 @@ def install_v2(app, settings, store, ocr, release_client, classifier=None, detec
                 raise HTTPException(400, "Page limit exceeded")
             if body.source == "camera":
                 try:
-                    raw, media = OpenCVCamera().capture()
+                    raw, media = app.state.camera.capture()
                 except (ImportError, RuntimeError):
                     raise HTTPException(503, "Camera unavailable") from None
             else:

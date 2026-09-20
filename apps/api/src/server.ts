@@ -64,6 +64,9 @@ function loadV2Policy() {
   return undefined;
 }
 const app = createApp({
+  askPolicy: e.ASK_POLICY_FILE
+    ? JSON.parse(readFileSync(e.ASK_POLICY_FILE, "utf8"))
+    : undefined,
   apiToken: e.API_TOKEN,
   approvalKey: e.RELEASE_APPROVAL_KEY,
   federato:

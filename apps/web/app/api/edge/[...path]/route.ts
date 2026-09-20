@@ -7,6 +7,7 @@ import {
   isRelayable,
   wantsApproval,
 } from "@/lib/edge-proxy";
+import { ensureUsbGatewayTunnel } from "@/lib/local-workstation";
 
 /**
  * Same-origin proxy to the RDK X5 privacy gateway.
@@ -48,6 +49,8 @@ async function forward(request: NextRequest, segments: string[]): Promise<NextRe
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD" && request.method !== "DELETE";
   const body = hasBody ? await request.text() : undefined;
+
+  await ensureUsbGatewayTunnel();
 
   let response: Response;
   try {

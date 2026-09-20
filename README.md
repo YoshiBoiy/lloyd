@@ -251,3 +251,7 @@ Frontend (`apps/web`): `npm run typecheck && npm run lint && npm test`.
 Tests cover every listed appetite boundary, malformed/missing/contradicted facts, TIV weighting, loss windows, lane priority, simulation isolation, schema stages, array/reference repair, OAuth expiry/retry/redirects, hash and approval enforcement, canary leakage, strict telemetry/preferences, outages, provenance, retrieval isolation, API idempotency, SSE and edge retention. See [docs/CODEX_BUILD_LOG.md](docs/CODEX_BUILD_LOG.md) for concrete implementation/test improvements and commit evidence.
 
 Provider implementation references: [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling), [Gemini structured outputs](https://ai.google.dev/gemini-api/docs/structured-output), [GPTZero developers](https://gptzero.me/developers). Account-specific contracts still need a live smoke test before deployment.
+
+## Ask Lloyd and Evidence Constellation
+
+Case-scoped cited chat, separate evidence and precedent maps, and an accessible ranked list are available at `/cases/:id/ask` and `/explore`. See [the Ask Lloyd runbook](docs/ask-lloyd.md) for the credential-free demo, authorization policy, live indexes, projection rebuilds, and evaluation commands.

@@ -10,6 +10,7 @@ import {
   fileToBase64,
   getEdgeV2Client,
   readSessionTokens,
+  mergeGatewayHealth,
   writeSessionTokens,
   type V2Health,
   type V2Review,
@@ -58,37 +59,77 @@ export function IntakeV2View({ caseId, intakeId }: { caseId?: string; intakeId?:
 
   const loadHealth = useCallback(async (c: EdgeV2Client) => {
     try {
-      setHealth(await c.health());
+      const next = await c.health();
+      setHealth((previous) => mergeGatewayHealth(previous, next));
       setHealthError(null);
+      return true;
     } catch (error) {
       setHealth(null);
       setHealthError(describe(error));
+      return false;
     }
   }, []);
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight: Promise<boolean> | null = null;
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      });
+
+    async function connect(probeHealth: boolean): Promise<boolean> {
+      let next = getEdgeV2Client();
+      if (next.transport === "direct") {
+        if (probeHealth) setConnecting(true);
+        const boot = await bootstrapLocalPairing();
+        if (cancelled) return false;
+        if (boot) {
+          const current = readSessionTokens();
+          if (current.pairingToken !== boot.pairingToken || current.approvalToken !== boot.approvalToken) {
+            writeSessionTokens(boot);
+            setTokens(boot);
+            next = getEdgeV2Client(true);
+            setClient(next);
+          }
+        }
+        if (probeHealth) setConnecting(false);
+      }
+      if (cancelled) return false;
+      if (!probeHealth) return true;
+      return loadHealth(next);
+    }
+
+    function connectOnce(probeHealth: boolean): Promise<boolean> {
+      if (inFlight) return inFlight;
+      inFlight = connect(probeHealth).finally(() => {
+        inFlight = null;
+      });
+      return inFlight;
+    }
+
     void (async () => {
       setHydrated(true);
-      let next = client;
-      if (next.transport === "direct" && !readSessionTokens().pairingToken) {
-        setConnecting(true);
-        const boot = await bootstrapLocalPairing();
+      let ok = false;
+      while (!cancelled) {
+        ok = await connectOnce(!ok);
         if (cancelled) return;
-        if (boot) {
-          writeSessionTokens(boot);
-          setTokens(boot);
-          next = getEdgeV2Client(true);
-          setClient(next);
-        }
+        await sleep(ok ? 4000 : 1000);
       }
-      if (cancelled) return;
-      setConnecting(false);
-      await loadHealth(next);
     })();
+
+    const wake = () => {
+      if (document.visibilityState === "hidden") return;
+      void connectOnce(false);
+    };
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadHealth]);
 
   const refresh = useCallback(
@@ -149,6 +190,10 @@ export function IntakeV2View({ caseId, intakeId }: { caseId?: string; intakeId?:
     previewAbort.current = controller;
     client
       .streamPreview((frame) => {
+        if (controller.signal.aborted) return;
+        setHealth((current) => current && current.capabilities.camera !== true
+          ? { ...current, capabilities: { ...current.capabilities, camera: true } }
+          : current);
         const url = URL.createObjectURL(frame);
         setPreviewSrc((current) => {
           if (current) URL.revokeObjectURL(current);
@@ -158,7 +203,9 @@ export function IntakeV2View({ caseId, intakeId }: { caseId?: string; intakeId?:
       .catch((error) => {
         if (!controller.signal.aborted) setMessage(describe(error));
       })
-      .finally(() => setPreviewOn(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setPreviewOn(false);
+      });
     const stop = () => setPreviewOn(false);
     const onVisibility = () => document.visibilityState === "hidden" && stop();
     window.addEventListener("pagehide", stop);
@@ -274,7 +321,7 @@ export function IntakeV2View({ caseId, intakeId }: { caseId?: string; intakeId?:
               Set case
             </Button>
           )}
-          <Button disabled={busy || !client.canReview || !cameraOk} onClick={() => setPreviewOn((v) => !v)}>
+          <Button disabled={busy || !client.canReview || needsPairing || !health} onClick={() => { setMessage(null); setPreviewOn((v) => !v); }}>
             <Camera size={14} /> {previewOn ? "Stop preview" : "Live preview"}
           </Button>
           <Button tone="primary" disabled={busy || !status || !canCapture || !cameraOk} onClick={() => status && run(() => client.capturePage(status.intakeId))}>
@@ -302,7 +349,7 @@ export function IntakeV2View({ caseId, intakeId }: { caseId?: string; intakeId?:
             <RotateCcw size={14} /> Analyze
           </Button>
         </div>
-        {health && !cameraOk ? <p className="mt-2 text-[12px] text-muted">Camera unavailable — upload a page instead.</p> : null}
+        {health && !cameraOk ? <p className="mt-2 text-[12px] text-muted">Camera health check failed — retry Live preview or upload a page.</p> : null}
         {qualityReasons.length ? (
           <p className="mt-2 text-[12px] text-crimson">{qualityReasons.map((r) => r.replaceAll("_", " ").toLowerCase()).join(" · ")}</p>
         ) : null}

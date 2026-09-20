@@ -254,7 +254,12 @@ const APPETITE_CLAUSES: Omit<GuidelineClause, "affectedSubmissionIds">[] = [
 ];
 
 function num(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 function str(value: unknown): string {
@@ -552,27 +557,66 @@ export function mapActivity(cases: CaseSummary[]): ActivityItem[] {
 }
 
 export function mapAnalytics(
-  telemetry: { status?: string; mode?: string; total?: number; failures?: number; averageDurationMs?: number; hourly?: { hour: string; ingested?: number; investigated?: number; p50_ms?: number; p95_ms?: number }[] },
-  cases: CaseSummary[],
+  telemetry: {
+    status?: string;
+    mode?: string;
+    total?: number;
+    failures?: number;
+    averageDurationMs?: number;
+    hourly?: {
+      hour: string;
+      ingested?: number | string;
+      investigated?: number | string;
+      p50_ms?: number | string;
+      p95_ms?: number | string;
+      throughput?: number | string;
+      average_duration_ms?: number | string;
+      failures?: number | string;
+      failure_rate?: number | string;
+      releases?: number | string;
+      redaction_count?: number | string;
+      human_overrides?: number | string;
+      human_override_rate?: number | string;
+    }[];
+  },
+  cases: CaseSummary[] = [],
 ): AnalyticsSummary {
   const hourly = telemetry.hourly ?? [];
   const outcomes: DecisionClass[] = ["IN_APPETITE", "ACCEPT_WITH_CONDITIONS", "INVESTIGATE", "OUT_OF_APPETITE"];
   const live = telemetry.mode === "live";
+  const events = hourly.reduce((n, row) => n + num(row.throughput ?? row.ingested), 0);
+  const overrides = hourly.reduce((n, row) => n + num(row.human_overrides), 0);
+  const released = hourly.reduce((n, row) => n + num(row.releases), 0);
+  const redacted = hourly.reduce((n, row) => n + num(row.redaction_count), 0);
   return {
     generatedAt: new Date().toISOString(),
     source: live ? "tiger_data_continuous_aggregates" : "case_store",
     disclaimer: live
       ? "Operational telemetry from Tiger Data. This page never shows raw documents, prompts, OCR bodies, or token maps."
       : "Live appetite outcomes from the case store. Hourly telemetry appears once Tiger Data is connected.",
-    throughput: hourly.map((row) => ({ hour: String(row.hour), ingested: num(row.ingested), investigated: num(row.investigated) })),
-    investigationLatency: hourly.map((row) => ({ hour: String(row.hour), p50Ms: num(row.p50_ms), p95Ms: num(row.p95_ms) })),
-    sensitiveFieldsRedacted: [],
+    throughput: hourly.map((row) => {
+      const volume = num(row.throughput ?? row.ingested);
+      return {
+        hour: String(row.hour),
+        ingested: num(row.ingested) || volume,
+        investigated: num(row.investigated) || volume,
+      };
+    }),
+    investigationLatency: hourly.map((row) => {
+      const duration = num(row.average_duration_ms);
+      return {
+        hour: String(row.hour),
+        p50Ms: num(row.p50_ms) || duration,
+        p95Ms: num(row.p95_ms) || duration,
+      };
+    }),
+    sensitiveFieldsRedacted: redacted ? [{ type: "redacted", count: redacted }] : [],
     cloudRequestsAvoided: 0,
-    cloudRequestsReleased: 0,
+    cloudRequestsReleased: released,
     referralRate: cases.length ? cases.filter((c) => c.decision === "INVESTIGATE").length / cases.length : 0,
     appetiteOutcomes: outcomes.map((decision) => ({ decision, count: cases.filter((c) => c.decision === decision).length })),
     frequentlyFailedRules: [],
-    humanOverrideRate: 0,
+    humanOverrideRate: events ? overrides / events : 0,
     ocrRedactionConfidence: [],
   };
 }

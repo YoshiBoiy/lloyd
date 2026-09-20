@@ -24,7 +24,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${serif.variable}`}>
       <body className={`${sans.className} antialiased`}>
-        <AppShell>{children}</AppShell>
+        <AppShell>
+          {process.env.LLOYD_HOSTED_DEMO === "true" && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              Synthetic demo · Sample data only. This shared demo workspace and its conversations may reset. Please don’t enter real submissions or personal information.
+            </div>
+          )}
+          {children}
+        </AppShell>
       </body>
     </html>
   );

@@ -15,6 +15,7 @@ import { classNames } from "@/lib/format";
 import { LloydLogo } from "./LloydLogo";
 
 const items = [
+  { href: "/explore", label: "Evidence Explorer", icon: FileSearch },
   { href: "/dashboard", label: "Submission Queue", icon: LayoutDashboard },
   { href: "/intake", label: "Secure Intake", icon: ScanLine },
   { href: "/intake/inbox", label: "Intake Workspace", icon: Inbox },

@@ -168,6 +168,22 @@ export interface V2Health {
   };
 }
 
+export function mergeGatewayHealth(previous: V2Health | null, next: V2Health): V2Health {
+  if (next.capabilities.camera === true) {
+    cameraKnownGoodUntil = Date.now() + 30_000;
+    return next;
+  }
+  if (previous?.capabilities.camera === true || Date.now() < cameraKnownGoodUntil) {
+    return { ...next, capabilities: { ...next.capabilities, camera: true } };
+  }
+  return next;
+}
+
+let cameraKnownGoodUntil = 0;
+export function resetGatewayHealthMerge(): void {
+  cameraKnownGoodUntil = 0;
+}
+
 export type V2Transport = "direct" | "proxy";
 export interface EdgeV2Config {
   transport: V2Transport;
@@ -324,7 +340,7 @@ export class EdgeV2Client {
       );
   }
 
-  private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async call<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
     const headers = new Headers(init.headers ?? {});
     if (init.body) headers.set("content-type", "application/json");
     if (this.config.transport === "direct" && this.config.pairingToken)
@@ -333,6 +349,15 @@ export class EdgeV2Client {
     try {
       response = await this.fetchImpl(`${this.config.baseUrl}${path}`, { ...init, headers, cache: "no-store" });
     } catch {
+      if (!retried && this.config.transport === "direct") {
+        const boot = await bootstrapLocalPairing(this.fetchImpl);
+        if (boot) {
+          writeSessionTokens(boot);
+          this.config.pairingToken = boot.pairingToken;
+          this.config.approvalToken = boot.approvalToken;
+          return this.call(path, init, true);
+        }
+      }
       throw new EdgeV2Error(0, "The privacy gateway is unreachable.", "EDGE_UNREACHABLE");
     }
     const text = await response.text();

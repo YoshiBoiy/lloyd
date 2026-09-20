@@ -175,3 +175,18 @@ it("conflicting source values remain preserved and contradicted", async () => {
   ).toBe("CONTRADICTED");
   await app.close();
 });
+it("lists cases as unavailable instead of leaking an internal store failure", async () => {
+  const { CaseStore } = await import("../packages/integrations/src/data.js");
+  class UnavailableStore extends CaseStore {
+    override async list(): Promise<never> {
+      throw new Error("MongoServerSelectionError");
+    }
+  }
+  const app = createApp({}, { store: new UnavailableStore() });
+  await app.inject({ method: "POST", url: "/api/bootstrap" });
+  const result = await app.inject({ url: "/api/cases?limit=100&offset=0" });
+  expect(result.statusCode).toBe(503);
+  expect(result.json().error.code).toBe("ATLAS_UNAVAILABLE");
+  expect(result.body).not.toContain("MongoServerSelectionError");
+  await app.close();
+});

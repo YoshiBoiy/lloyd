@@ -19,3 +19,5 @@ datasets/page-seg/calib/
 datasets/page-seg/holdout/
 datasets/page-seg/downloads/
 datasets/page-seg/provenance.json
+.vercel
+.env*

@@ -1,3 +1,7 @@
+import { seedAskDemo } from "../../../packages/ask/src/fixtures.js";
+import { registerAsk, type AskPolicy } from "./routes/ask.js";
+import { AskService } from "../../../packages/ask/src/service.js";
+import { FoundryAskModels } from "../../../packages/ask/src/planner.js";
 import Fastify from "fastify";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -218,6 +222,7 @@ function extractLosses(
   return { complete: true, items };
 }
 export interface Config {
+  askPolicy?: AskPolicy;
   apiToken?: string;
   approvalKey?: string;
   federato?: { id: string; secret: string };
@@ -438,7 +443,12 @@ export function createApp(
             );
       }
     }
-    await store.init();
+    let atlasStatus: string = store.mode;
+    try {
+      await store.init();
+    } catch {
+      atlasStatus = "UNAVAILABLE";
+    }
     let searchStatus = "AVAILABLE";
     try {
       await evidence.init();
@@ -454,7 +464,7 @@ export function createApp(
       mappings: mapping ?? null,
       unresolvedMappings: mapping ? [] : Object.keys(Facts.shape),
       services: {
-        atlas: store.mode,
+        atlas: atlasStatus,
         elastic: searchStatus,
         planner: plannerDescriptor.status,
         plannerDetail: plannerDescriptor,
@@ -476,6 +486,14 @@ export function createApp(
     const c = await store.get(id);
     if (!c) throw new DomainError("NOT_FOUND", "Case not found", 404);
     return c;
+  }
+  async function listStoredCases() {
+    try {
+      return await store.list();
+    } catch (error) {
+      if (error instanceof DomainError) throw error;
+      throw new DomainError("ATLAS_UNAVAILABLE", "Case store is unavailable", 503);
+    }
   }
   function queryFor(
     m: z.infer<typeof Mapping>,
@@ -654,6 +672,9 @@ export function createApp(
           const record: CaseRecord = {
             id,
             version: (old?.version ?? 0) + 1,
+            tenantId:
+              config.askPolicy?.tenantId ??
+              (federato.mode === "fixture" ? "carrier-demo" : undefined),
             schemaHash: m.schemaHash,
             mode: federato.mode,
             facts,
@@ -673,6 +694,11 @@ export function createApp(
               await evidence.add({
                 evidenceId: `${id}:${c.key}`,
                 caseId: id,
+                tenantId:
+                  config.askPolicy?.tenantId ??
+                  (federato.mode === "fixture" ? "carrier-demo" : undefined),
+                documentId: `${id}:normalized`,
+                sourceType: federato.mode,
                 text,
                 sourceUri: `${federato.mode}://${m.resource}/${encodeURIComponent(id)}`,
                 sourceField: m.paths[c.key] ?? c.key,
@@ -723,7 +749,7 @@ export function createApp(
       })
       .strict()
       .parse(req.query);
-    const rows = (await store.list())
+    const rows = (await listStoredCases())
       .sort(compareCases)
       .filter((c) => !q.lane || c.decision.class === q.lane);
     return {
@@ -955,7 +981,12 @@ export function createApp(
     const processing: Record<string, unknown> = {};
     if (data.manifest.destinations.includes("elasticsearch")) {
       try {
-        await evidence.ingest(data, trusted);
+        await evidence.ingest(
+          data,
+          trusted,
+          config.askPolicy?.tenantId ??
+            (federato.mode === "fixture" ? "carrier-demo" : undefined),
+        );
         processing.elasticsearch = { status: "INDEXED" };
       } catch {
         processing.elasticsearch = { status: "UNAVAILABLE" };
@@ -1342,5 +1373,39 @@ export function createApp(
   app.addHook("onReady", async () => {
     await bootstrap();
   });
+  if (
+    !config.federato &&
+    !config.mongoUri &&
+    !config.elasticUrl &&
+    !config.askPolicy
+  )
+    app.post("/api/ask/demo", async () => seedAskDemo(store, evidence));
+  registerAsk(
+    app,
+    new AskService(
+      store,
+      evidence,
+      config.foundryProjectEndpoint &&
+        config.foundryAgentId &&
+        config.foundryApiKey
+        ? new FoundryAskModels(
+            config.foundryProjectEndpoint,
+            config.foundryAgentId,
+            config.foundryApiKey,
+          )
+        : undefined,
+    ),
+    config.askPolicy ??
+      (!config.federato && !config.mongoUri && !config.elasticUrl
+        ? {
+            tenantId: "carrier-demo",
+            userId: "underwriter:demo",
+            caseIds: ["*"],
+            precedentAccess: true,
+            portfolioAccess: true,
+            retentionDays: 7,
+          }
+        : undefined),
+  );
   return app;
 }

@@ -1,0 +1,11 @@
+{
+  "name": "ask-risk-v1",
+  "type": "vectorSearch",
+  "definition": {
+    "fields": [
+      {"type":"vector","path":"riskProfile8","numDimensions":8,"similarity":"cosine"},
+      {"type":"filter","path":"tenantId"},
+      {"type":"filter","path":"id"}
+    ]
+  }
+}

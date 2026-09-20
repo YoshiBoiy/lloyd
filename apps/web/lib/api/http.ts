@@ -198,13 +198,26 @@ export class HttpLloydApi implements LloydApi {
   }
 
   async getAnalytics(): Promise<AnalyticsSummary> {
-    const [telemetry, list] = await Promise.all([
-      this.api<{ analytics: { status?: string; mode?: string; total?: number; failures?: number; averageDurationMs?: number; hourly?: { hour: string; ingested?: number; investigated?: number }[] } }>(
-        "/api/analytics/summary",
-      ),
-      this.listCases(),
-    ]);
-    return mapAnalytics(telemetry.analytics ?? {}, list.cases);
+    const telemetry = await this.api<{
+      analytics: {
+        status?: string;
+        mode?: string;
+        total?: number;
+        failures?: number;
+        averageDurationMs?: number;
+        hourly?: {
+          hour: string;
+          ingested?: number | string;
+          investigated?: number | string;
+          throughput?: number | string;
+          average_duration_ms?: number | string;
+          releases?: number | string;
+          redaction_count?: number | string;
+          human_overrides?: number | string;
+        }[];
+      };
+    }>("/api/analytics/summary");
+    return mapAnalytics(telemetry.analytics ?? {});
   }
 
   async getActivity(): Promise<ActivityItem[]> {
@@ -587,7 +600,7 @@ function silenceReason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (/\b401\b|\b403\b|FORBIDDEN|UNAUTHORIZED/i.test(message)) return "refused this browser's identity";
   if (/NOT_CONFIGURED|not enabled/i.test(message)) return "has release contract v2 disabled";
-  if (/\b5\d\d\b|fetch failed|NetworkError|Failed to fetch/i.test(message)) return "did not answer";
+  if (/\b5\d\d\b|fetch failed|NetworkError|Failed to fetch|unreachable|unavailable/i.test(message)) return "did not answer";
   return "could not be read";
 }
 

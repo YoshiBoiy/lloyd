@@ -6,12 +6,13 @@ import json
 import os
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import Field
 from .capture import (
     FixtureCamera,
@@ -20,7 +21,6 @@ from .capture import (
     PageQuadTracker,
     PaddleOCRAdapter,
     annotate_preview_frame,
-    camera_available,
     fully_redacted_image,
     preprocess,
 )
@@ -140,6 +140,7 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
         settings.page_detector_path, settings.page_detector_digest,
         settings.page_detector_backend, settings.page_score_min, settings.page_input,
     )
+    app.state.camera = OpenCVCamera()
     app.state.store = store
     app.state.settings = settings
 
@@ -206,7 +207,7 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
             "tenantId": settings.tenant_id or None,
             "v2Enabled": settings.v2_enabled,
             "capabilities": {
-                "camera": camera_available() if settings.probe_camera else None,
+                "camera": app.state.camera.available() if settings.probe_camera else None,
                 "ocr": ocr.capabilities() if hasattr(ocr, "capabilities") else {"adapter": type(ocr).__name__, "ready": getattr(ocr, "available", lambda: True)()},
                 "classifier": classifier,
                 "detector": detector,
@@ -233,15 +234,14 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
             raise HTTPException(403, "Raw preview requires a paired local client")
         if not preview_lock.acquire(blocking=False):
             raise HTTPException(409, "Camera preview already active")
+        resources = ExitStack()
+        resources.callback(preview_lock.release)
         try:
             import cv2
 
-            camera = cv2.VideoCapture(int(os.environ.get("EDGE_CAMERA_INDEX", "0")))
-            if not camera.isOpened():
-                camera.release()
-                raise RuntimeError("Camera unavailable")
+            camera = resources.enter_context(app.state.camera.session())
         except (ImportError, RuntimeError):
-            preview_lock.release()
+            resources.close()
             raise HTTPException(503, "Camera preview unavailable") from None
 
         def frames():
@@ -249,8 +249,9 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
             try:
                 deadline = time.monotonic() + max(1, settings.preview_max_seconds)
                 while time.monotonic() < deadline:
-                    ok, frame = camera.read()
-                    if not ok or frame is None:
+                    try:
+                        frame = camera.read_frame()
+                    except RuntimeError:
                         break
                     annotated = annotate_preview_frame(frame, tracker, app.state.page_detector)
                     ok, encoded = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -266,11 +267,11 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
                     )
                     time.sleep(1 / 15)
             finally:
-                camera.release()
-                preview_lock.release()
+                resources.close()
 
         return StreamingResponse(
             frames(),
+            background=BackgroundTask(resources.close),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={"cache-control": "no-store, no-cache", "x-content-type-options": "nosniff"},
         )
@@ -285,7 +286,7 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
             media_type = body.mediaType
         elif body.source == "camera":
             try:
-                content, media_type = OpenCVCamera().capture()
+                content, media_type = app.state.camera.capture()
             except (ImportError, RuntimeError):
                 raise HTTPException(503, "Camera unavailable; choose fixture capture") from None
         else:

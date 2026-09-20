@@ -2,6 +2,8 @@ import base64
 import io
 import os
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -32,41 +34,77 @@ class OpenCVCamera:
             warmup_frames if warmup_frames is not None else int(os.environ.get("EDGE_CAMERA_WARMUP_FRAMES", "2"))
         )
 
+        self._lock = threading.RLock()
+        self._camera = None
+        self._users = 0
+        self._last_available_ok = 0.0
+
+    @contextmanager
+    def session(self):
+        """Share one device handle across preview, capture and health requests."""
+        import cv2
+
+        with self._lock:
+            if self._camera is None:
+                camera = cv2.VideoCapture(self.index)
+                try:
+                    if not camera.isOpened():
+                        raise RuntimeError("Camera unavailable")
+                    for _ in range(max(0, self.warmup_frames)):
+                        camera.read()
+                except Exception:
+                    camera.release()
+                    raise
+                self._camera = camera
+            self._users += 1
+        try:
+            yield self
+        finally:
+            with self._lock:
+                self._users -= 1
+                if self._users == 0:
+                    camera, self._camera = self._camera, None
+                    camera.release()
+
+    def read_frame(self):
+        with self._lock:
+            if self._camera is None:
+                raise RuntimeError("Camera unavailable")
+            ok, frame = self._camera.read()
+            if not ok or frame is None:
+                raise RuntimeError("Camera unavailable")
+            # Own the pixels after releasing the lock; preview overlays must never
+            # mutate a frame used for capture.
+            return frame.copy()
+
     def capture(self):
         import cv2
 
-        camera = cv2.VideoCapture(self.index)
-        if not camera.isOpened():
-            camera.release()
-            raise RuntimeError("Camera unavailable")
+        with self.session():
+            frame = self.read_frame()
+        ok, encoded = cv2.imencode(".png", frame)
+        if not ok:
+            raise RuntimeError("Camera encoding failed")
+        return encoded.tobytes(), "image/png"
+
+    def available(self) -> bool:
+        with self._lock:
+            if self._camera is not None:
+                self._last_available_ok = time.monotonic()
+                return True
+            if self._last_available_ok and time.monotonic() - self._last_available_ok < 15:
+                return True
         try:
-            # Many USB/MIPI sensors return an underexposed or stale buffered
-            # frame on the very first read after opening; discard a few
-            # frames so the captured image reflects the current scene.
-            for _ in range(max(0, self.warmup_frames)):
-                camera.read()
-            ok, frame = camera.read()
-            if not ok or frame is None:
-                raise RuntimeError("Camera unavailable")
-            ok, encoded = cv2.imencode(".png", frame)
-            if not ok:
-                raise RuntimeError("Camera encoding failed")
-            return encoded.tobytes(), "image/png"
-        finally:
-            camera.release()
+            with self.session():
+                with self._lock:
+                    self._last_available_ok = time.monotonic()
+                return True
+        except (ImportError, RuntimeError):
+            return False
 
 
 def camera_available(index: int | None = None) -> bool:
-    """Capability probe for the health endpoint; opens and immediately releases the device."""
-    try:
-        import cv2
-    except ImportError:
-        return False
-    camera = cv2.VideoCapture(index if index is not None else int(os.environ.get("EDGE_CAMERA_INDEX", "0")))
-    try:
-        return bool(camera.isOpened())
-    finally:
-        camera.release()
+    return OpenCVCamera(index).available()
 
 
 @dataclass
