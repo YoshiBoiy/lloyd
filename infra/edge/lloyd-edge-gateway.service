@@ -1,0 +1,90 @@
+# Lloyd privacy gateway on the RDK X5 (TDD §4, §9).
+#
+# Install:  sudo cp lloyd-edge-gateway.service /etc/systemd/system/
+#           sudo install -d -o lloyd-edge -g lloyd-edge -m 0700 /var/lib/lloyd-edge
+#           sudo install -m 0600 -o root -g lloyd-edge lloyd-edge.env /etc/lloyd-edge/gateway.env
+#           sudo systemctl daemon-reload && sudo systemctl enable --now lloyd-edge-gateway
+#
+# The bundle lives read-only under /opt/lloyd-edge/<version>; /opt/lloyd-edge/current is a symlink
+# so rollback is `ln -sfn /opt/lloyd-edge/<previous> /opt/lloyd-edge/current && systemctl restart`.
+# The interim `nobody` deployment is replaced by the dedicated unprivileged `lloyd-edge` account
+# (`useradd --system --no-create-home --shell /usr/sbin/nologin lloyd-edge`), which gets only the
+# camera group and the encrypted storage directory.
+
+[Unit]
+Description=Lloyd edge privacy gateway (release contract v2)
+Documentation=file:///opt/lloyd-edge/current/infra/README.md
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+# Refuse to start on a clock that predates the build; approvals and retention depend on UTC (TDD §9).
+ConditionPathExists=/etc/lloyd-edge/gateway.env
+
+[Service]
+Type=simple
+User=lloyd-edge
+Group=lloyd-edge
+SupplementaryGroups=video
+WorkingDirectory=/opt/lloyd-edge/current/app
+EnvironmentFile=/etc/lloyd-edge/gateway.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 EDGE_STORAGE_DIR=/var/lib/lloyd-edge
+# Verify the installed bundle before serving; a tampered or partial install never starts.
+ExecStartPre=/opt/lloyd-edge/current/venv/bin/python /opt/lloyd-edge/current/scripts/build-edge-bundle.py verify /opt/lloyd-edge/current/bundle.manifest.json
+ExecStart=/opt/lloyd-edge/current/venv/bin/python -m gateway
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+# Filesystem: everything read-only except the encrypted intake store; no plaintext temp spill.
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/lloyd-edge
+PrivateTmp=yes
+UMask=0077
+StateDirectory=lloyd-edge
+StateDirectoryMode=0700
+
+# Privilege and kernel surface.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @cpu-emulation @obsolete
+# Camera access is the only device the service may open.
+PrivateDevices=no
+DeviceAllow=char-video4linux rw
+DevicePolicy=closed
+
+# Network: local pairing in, approved release path out. IPAddressAllow lists are the in-unit half of the
+# egress control; infra/edge/nftables-egress.conf enforces the same policy at the host boundary.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=${EDGE_LAN_CIDR}
+IPAddressAllow=${EDGE_BACKEND_IP}
+
+# Resource budgets (TDD §10 provisional targets); revise after board benchmarks.
+MemoryMax=50%
+MemorySwapMax=0
+TasksMax=256
+
+# Logs carry IDs, bounded statuses, versions and latencies only.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lloyd-edge
+
+[Install]
+WantedBy=multi-user.target

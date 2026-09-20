@@ -34,7 +34,7 @@ for key in [
     "GEMINI_API_KEY",
     "GPTZERO_API_KEY",
 ]:
-    env.pop(key, None)
+    env[key] = ""  # empty beats .env loading in the child process
 server = subprocess.Popen(
     ["node", "dist/apps/api/src/server.js"],
     env=env,
