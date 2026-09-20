@@ -10,6 +10,9 @@ export function SimilarCases({ cases }: { cases: SimilarCase[] }) {
         Atlas nearest neighbors are advisory. A precedent never overrides the current appetite document.
       </p>
       <ul className="space-y-3">
+        {cases.length === 0 ? (
+          <li className="text-sm text-muted">No neighboring cases yet. Run an investigation to retrieve Atlas precedents.</li>
+        ) : null}
         {cases.map((item) => (
           <li key={item.caseId} className="border-b border-line pb-2 last:border-0">
             <div className="flex items-start justify-between gap-2">

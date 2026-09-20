@@ -1,13 +1,12 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Sans, IBM_Plex_Serif } from "next/font/google";
+import { IBM_Plex_Serif, Inter } from "next/font/google";
 import { AppShell } from "@/components/layout/AppShell";
 import "./globals.css";
 
-const sans = IBM_Plex_Sans({
+const sans = Inter({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-ibm-plex-sans",
+  variable: "--font-inter",
 });
 
 const serif = IBM_Plex_Serif({
@@ -23,8 +22,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${sans.variable} ${serif.variable} antialiased`}>
+    <html lang="en" className={`${sans.variable} ${serif.variable}`}>
+      <body className={`${sans.className} antialiased`}>
         <AppShell>{children}</AppShell>
       </body>
     </html>

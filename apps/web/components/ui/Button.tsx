@@ -19,7 +19,7 @@ export function Button({
   return (
     <button
       className={classNames(
-        "inline-flex items-center justify-center gap-1.5 rounded-sm px-2.5 py-1.5 text-[12.5px] font-medium disabled:cursor-not-allowed disabled:opacity-45",
+        "inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-45",
         tones[tone],
         className,
       )}

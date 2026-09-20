@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Camera, RotateCcw } from "lucide-react";
 import { getLloydApi } from "@/lib/api";
+import { getEdgeV2Client } from "@/lib/api/edge-v2";
 import { useCase, useIntake } from "@/lib/hooks";
 import { formatPercent } from "@/lib/format";
 import type { CloudDestination, IntakeStage, PrivacyClassification, SensitiveFieldType } from "@/lib/api/types";
@@ -125,14 +126,12 @@ export function IntakeView({ caseId }: { caseId: string }) {
       <div className="grid grid-cols-[1.15fr_0.85fr] gap-3">
         <Panel title="Camera / document preview">
           <div className="relative overflow-hidden rounded-sm border border-line bg-navy">
-            <div className="absolute inset-6 border border-dashed border-white/35" />
-            <div className="absolute left-6 top-2 text-[10px] uppercase tracking-[0.16em] text-white/55">Document boundary</div>
+            {previewActive ? null : <div className="absolute inset-6 border border-dashed border-white/35" />}
+            <div className="absolute left-6 top-2 text-[10px] uppercase tracking-[0.16em] text-white/55">
+              {previewActive ? "Detected page edges" : "Document boundary"}
+            </div>
             {previewActive ? (
-              <img
-                src="/api/edge/preview/stream"
-                alt="Live camera preview"
-                className="relative z-10 m-8 min-h-[200px] max-h-[360px] w-[calc(100%-4rem)] rounded-sm object-contain"
-              />
+              <LivePreview onError={setMessage} onEnd={() => setPreviewActive(false)} />
             ) : isLiveCamera ? (
               <div className="relative z-10 m-8 flex min-h-[200px] max-h-[360px] flex-col items-center justify-center gap-2 rounded-sm bg-panel p-6 text-center">
                 <Camera size={28} className="text-muted" />
@@ -180,7 +179,9 @@ export function IntakeView({ caseId }: { caseId: string }) {
             </Button>
           </div>
           {previewActive ? (
-            <p className="mt-2 text-[12px] text-amber">Live view only - not recorded, stored, OCR&apos;d, or released. It stops when you close this view or hide the tab.</p>
+            <p className="mt-2 text-[12px] text-amber">Live view only — the yellow page outline is drawn on the RDK. Frames are not recorded, stored, OCR&apos;d, or released.</p>
+          ) : !getEdgeV2Client().canReview && isLive ? (
+            <p className="mt-2 text-[12px] text-muted">Live preview requires direct pairing with the gateway (NEXT_PUBLIC_EDGE_GATEWAY_URL); the app-server proxy never relays raw frames.</p>
           ) : null}
         </Panel>
 
@@ -394,4 +395,47 @@ export function IntakeView({ caseId }: { caseId: string }) {
 
 function DocumentText({ text }: { text: string }) {
   return <pre className="max-h-[280px] overflow-auto whitespace-pre-wrap bg-paper p-3 text-[11.5px] leading-5">{text}</pre>;
+}
+
+/**
+ * Raw preview is served only to a directly paired local client; the same-origin
+ * proxy refuses it. Frames are streamed with the pairing token and painted
+ * transiently — nothing is stored.
+ */
+function LivePreview({ onError, onEnd }: { onError: (message: string) => void; onEnd: () => void }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const callbacks = useRef({ onError, onEnd });
+  callbacks.current = { onError, onEnd };
+  useEffect(() => {
+    const client = getEdgeV2Client();
+    const controller = new AbortController();
+    client
+      .streamPreview((frame) => {
+        const url = URL.createObjectURL(frame);
+        setSrc((current) => {
+          if (current) URL.revokeObjectURL(current);
+          return url;
+        });
+      }, controller.signal)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) callbacks.current.onError(error instanceof Error ? error.message : "Preview unavailable");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) callbacks.current.onEnd();
+      });
+    return () => {
+      controller.abort();
+      setSrc((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return null;
+      });
+    };
+  }, []);
+  return src ? (
+    <img src={src} alt="Live camera preview with on-device page edge overlay" className="relative z-10 m-8 min-h-[200px] max-h-[360px] w-[calc(100%-4rem)] rounded-sm object-contain" />
+  ) : (
+    <div className="relative z-10 m-8 flex min-h-[200px] items-center justify-center rounded-sm bg-panel p-6 text-center text-[12px] text-muted">
+      Connecting to the paired gateway…
+    </div>
+  );
 }

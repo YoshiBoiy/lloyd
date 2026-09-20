@@ -1,11 +1,15 @@
-import { IntakeView } from "@/components/intake/IntakeView";
-import { DEMO_CASE_ID } from "@/lib/fixtures/intake";
+import { IntakeEntry } from "@/components/intake/IntakeEntry";
 
 /**
- * Unscoped entry point for documents that arrive before anyone has picked a
- * case (broker mail, batch scanning). It stands in the seeded demo case until
- * intake can suggest a match from the sanitized capture itself.
+ * Unscoped entry for documents that arrive before a case is chosen. v2 intake can start
+ * unassigned and be matched from the workspace after release. `?intake=` resumes an in-flight
+ * intake, so a reloaded browser returns to the same revision instead of orphaning the work.
  */
-export default function IntakePage() {
-  return <IntakeView caseId={DEMO_CASE_ID} />;
+export default async function IntakePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ intake?: string }>;
+}) {
+  const { intake } = await searchParams;
+  return <IntakeEntry intakeId={intake} />;
 }

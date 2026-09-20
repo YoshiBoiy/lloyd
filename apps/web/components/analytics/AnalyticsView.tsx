@@ -32,37 +32,43 @@ export function AnalyticsView() {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Panel title="Submission throughput">
-          <BarRows
-            rows={data.throughput.map((row) => ({
-              label: row.hour,
-              value: row.investigated,
-              secondary: row.ingested,
-              max: maxThroughput,
-            }))}
-            caption="Investigated (fill) vs ingested (track)"
-          />
-        </Panel>
-        <Panel title="Investigation latency">
-          <BarRows
-            rows={data.investigationLatency.map((row) => ({
-              label: row.hour,
-              value: row.p50Ms,
-              secondary: row.p95Ms,
-              max: maxLatency,
-            }))}
-            caption="p50 fill · p95 track (ms)"
-          />
-        </Panel>
-        <Panel title="Sensitive fields redacted">
-          <BarRows
-            rows={data.sensitiveFieldsRedacted.map((row) => ({
-              label: row.type.replaceAll("_", " "),
-              value: row.count,
-              max: maxRedacted,
-            }))}
-          />
-        </Panel>
+        {data.throughput.length > 0 ? (
+          <Panel title="Submission throughput">
+            <BarRows
+              rows={data.throughput.map((row) => ({
+                label: row.hour,
+                value: row.investigated,
+                secondary: row.ingested,
+                max: maxThroughput,
+              }))}
+              caption="Investigated (fill) vs ingested (track)"
+            />
+          </Panel>
+        ) : null}
+        {data.investigationLatency.length > 0 ? (
+          <Panel title="Investigation latency">
+            <BarRows
+              rows={data.investigationLatency.map((row) => ({
+                label: row.hour,
+                value: row.p50Ms,
+                secondary: row.p95Ms,
+                max: maxLatency,
+              }))}
+              caption="p50 fill · p95 track (ms)"
+            />
+          </Panel>
+        ) : null}
+        {data.sensitiveFieldsRedacted.length > 0 ? (
+          <Panel title="Sensitive fields redacted">
+            <BarRows
+              rows={data.sensitiveFieldsRedacted.map((row) => ({
+                label: row.type.replaceAll("_", " "),
+                value: row.count,
+                max: maxRedacted,
+              }))}
+            />
+          </Panel>
+        ) : null}
         <Panel title="Appetite outcomes">
           <ul className="space-y-2">
             {data.appetiteOutcomes.map((row) => (
@@ -73,36 +79,40 @@ export function AnalyticsView() {
             ))}
           </ul>
         </Panel>
-        <Panel title="Frequently failed rules">
-          <BarRows
-            rows={data.frequentlyFailedRules.map((row) => ({
-              label: row.rule,
-              value: row.failures,
-              max: maxFailed,
-            }))}
-          />
-        </Panel>
-        <Panel title="OCR / redaction confidence trend">
-          <svg viewBox={`0 0 ${data.ocrRedactionConfidence.length * 28} 80`} className="h-28 w-full">
-            <polyline
-              fill="none"
-              stroke="#1f6b4a"
-              strokeWidth="1.5"
-              points={data.ocrRedactionConfidence
-                .map((row, i) => `${i * 28 + 8},${80 - row.ocr * 70}` )
-                .join(" ")}
+        {data.frequentlyFailedRules.length > 0 ? (
+          <Panel title="Frequently failed rules">
+            <BarRows
+              rows={data.frequentlyFailedRules.map((row) => ({
+                label: row.rule,
+                value: row.failures,
+                max: maxFailed,
+              }))}
             />
-            <polyline
-              fill="none"
-              stroke="#9a6700"
-              strokeWidth="1.5"
-              points={data.ocrRedactionConfidence
-                .map((row, i) => `${i * 28 + 8},${80 - row.redaction * 70}`)
-                .join(" ")}
-            />
-          </svg>
-          <p className="text-[12px] text-muted">Emerald OCR · amber redaction. Source: {data.source}</p>
-        </Panel>
+          </Panel>
+        ) : null}
+        {data.ocrRedactionConfidence.length > 0 ? (
+          <Panel title="OCR / redaction confidence trend">
+            <svg viewBox={`0 0 ${data.ocrRedactionConfidence.length * 28} 80`} className="h-28 w-full">
+              <polyline
+                fill="none"
+                stroke="#1f6b4a"
+                strokeWidth="1.5"
+                points={data.ocrRedactionConfidence
+                  .map((row, i) => `${i * 28 + 8},${80 - row.ocr * 70}`)
+                  .join(" ")}
+              />
+              <polyline
+                fill="none"
+                stroke="#9a6700"
+                strokeWidth="1.5"
+                points={data.ocrRedactionConfidence
+                  .map((row, i) => `${i * 28 + 8},${80 - row.redaction * 70}`)
+                  .join(" ")}
+              />
+            </svg>
+            <p className="text-[12px] text-muted">Emerald OCR · amber redaction. Source: {data.source}</p>
+          </Panel>
+        ) : null}
       </div>
     </div>
   );
@@ -110,10 +120,10 @@ export function AnalyticsView() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <Panel>
-      <div className="px-3 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</p>
-        <p className="mt-1 font-serif text-3xl tabular text-navy">{value}</p>
+    <Panel elevated>
+      <div className="px-3.5 py-3.5">
+        <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+        <p className="mt-1.5 text-[32px] font-bold leading-none tracking-tight tabular text-navy">{value}</p>
       </div>
     </Panel>
   );

@@ -2,12 +2,19 @@ import type {
   ActivityItem,
   AnalyticsSummary,
   CaseDetail,
+  CaseDocument,
   CaseListFilters,
   CaseListResponse,
   CloudDestination,
   GuidelineClause,
+  IntakeCandidatesResponse,
   IntakeDocument,
+  IntakeInboxItem,
+  IntakeRejection,
   IntakeStage,
+  IntakeTab,
+  IntakeWorkItem,
+  IntakeWorkResult,
   InvestigationStep,
   LloydApi,
   ManifestField,
@@ -17,6 +24,27 @@ import type {
   SensitiveFieldType,
 } from "./types";
 import { MIN_RELEASE_CONFIDENCE } from "./types";
+import { getEdgeV2Client } from "./edge-v2";
+import {
+  mergeIntakeWork,
+  type BackendIntakeRow,
+  type DeviceIntakeRow,
+} from "./intake-work";
+import {
+  applyCaseFilters,
+  mapActivity,
+  mapAnalytics,
+  mapCaseDetail,
+  mapGuidelines,
+  mapInvestigationSteps,
+  mapListItem,
+  summarizeCases,
+  type WireCaseRecord,
+  type WireListItem,
+  type WirePathToYes,
+  type WirePrecedent,
+  type WireStep,
+} from "./backend-map";
 
 /**
  * HTTP adapter for the integration pass.
@@ -71,6 +99,9 @@ export class HttpLloydApi implements LloydApi {
     private latencyMs = 0,
   ) {}
 
+  private investigationByCase = new Map<string, WireStep[]>();
+  private namesById = new Map<string, string>();
+
   setLatency(ms: number): void {
     this.latencyMs = ms;
   }
@@ -80,83 +111,195 @@ export class HttpLloydApi implements LloydApi {
   }
 
   async listCases(filters: CaseListFilters = {}): Promise<CaseListResponse> {
-    const params = new URLSearchParams();
-    if (filters.search) params.set("search", filters.search);
-    if (filters.state) params.set("state", filters.state);
-    if (filters.decision) params.set("decision", filters.decision);
-    if (filters.assignee) params.set("assignee", filters.assignee);
-    if (filters.stage) params.set("stage", filters.stage);
-    return this.api(`/api/cases?${params.toString()}`);
+    const items: WireListItem[] = [];
+    let offset = 0;
+    let total = Number.POSITIVE_INFINITY;
+    while (offset < total) {
+      const page = await this.api<{ items: WireListItem[]; total: number }>(`/api/cases?limit=100&offset=${offset}`);
+      items.push(...(page.items ?? []));
+      total = page.total ?? items.length;
+      offset += page.items?.length ?? 0;
+      if (!page.items?.length) break;
+    }
+    const mapped = items.map((item) => {
+      const summary = mapListItem(item);
+      this.namesById.set(summary.id, summary.accountName);
+      return summary;
+    });
+    return summarizeCases(applyCaseFilters(mapped, filters));
   }
 
-  getCase(id: string): Promise<CaseDetail> {
-    return this.api(`/api/cases/${encodeURIComponent(id)}`);
+  async getCase(id: string): Promise<CaseDetail> {
+    const payload = await this.api<{
+      case: WireCaseRecord;
+      pathToYes?: WirePathToYes[];
+      documents?: CaseDocument[];
+    }>(`/api/cases/${encodeURIComponent(id)}`);
+    let precedents: WirePrecedent[] = [];
+    try {
+      const neighbor = await this.api<{ matches?: WirePrecedent[] }>(`/api/cases/${encodeURIComponent(id)}/precedents`);
+      precedents = neighbor.matches ?? [];
+    } catch {
+      precedents = [];
+    }
+    return mapCaseDetail(payload.case, payload.pathToYes ?? [], {
+      steps: this.investigationByCase.get(id),
+      precedents,
+      names: Object.fromEntries(this.namesById),
+      documents: payload.documents ?? [],
+    });
   }
 
   async investigate(id: string, onStep?: (step: InvestigationStep) => void): Promise<CaseDetail> {
-    const investigation = await this.api<{ id: string }>(`/api/cases/${encodeURIComponent(id)}/investigate`, {
-      method: "POST",
-    });
-    const detail = await this.pollInvestigation(id, investigation.id, onStep);
-    return detail;
+    const result = await this.api<{ investigation?: { id: string; steps?: WireStep[] } }>(
+      `/api/cases/${encodeURIComponent(id)}/investigate`,
+      { method: "POST" },
+    );
+    const steps = result.investigation?.steps ?? [];
+    this.investigationByCase.set(id, steps);
+    mapInvestigationSteps(steps).forEach((step) => onStep?.(step));
+    return this.getCase(id);
   }
 
-  applyBrokerResponse(id: string): Promise<CaseDetail> {
-    return this.api(`/api/cases/${encodeURIComponent(id)}/simulate`, {
-      method: "POST",
-      body: JSON.stringify({ scenario: "broker_response" }),
-    });
+  applyBrokerResponse(_id: string): Promise<CaseDetail> {
+    return Promise.reject(new Error("Broker-response simulation is a working-file tool, not a canned demo. Send explicit fact changes from a real reply."));
   }
 
-  recalculate(id: string): Promise<CaseDetail> {
-    return this.api(`/api/cases/${encodeURIComponent(id)}/simulate`, {
-      method: "POST",
-      body: JSON.stringify({ scenario: "recalculate" }),
-    });
+  recalculate(_id: string): Promise<CaseDetail> {
+    return Promise.reject(new Error("Recalculate after recording verified fact changes; there is no scripted replay on live files."));
   }
 
-  draftInformationRequest(id: string): Promise<{ id: string; questions: string[]; rationale: string[] }> {
-    return this.api(`/api/cases/${encodeURIComponent(id)}/actions/draft-information-request`, {
-      method: "POST",
-    });
+  async draftInformationRequest(id: string): Promise<{ id: string; questions: string[]; rationale: string[] }> {
+    const result = await this.api<{ action: { id: string; questions: string[] } }>(
+      `/api/cases/${encodeURIComponent(id)}/actions/draft-information-request`,
+      { method: "POST" },
+    );
+    return { id: result.action.id, questions: result.action.questions ?? [], rationale: [] };
   }
 
-  recordOverride(id: string, reason: string): Promise<CaseDetail> {
-    return this.api(`/api/cases/${encodeURIComponent(id)}/override`, {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    });
+  recordOverride(_id: string, _reason: string): Promise<CaseDetail> {
+    return Promise.reject(new Error("Human overrides are recorded in the case file after the live override endpoint is enabled."));
   }
 
-  addNote(id: string, body: string): Promise<CaseDetail> {
-    return this.api(`/api/cases/${encodeURIComponent(id)}/notes`, {
-      method: "POST",
-      body: JSON.stringify({ body }),
-    });
+  addNote(_id: string, _body: string): Promise<CaseDetail> {
+    return Promise.reject(new Error("Working notes are not persisted on the live API yet."));
   }
 
   updateAuthenticity(
-    id: string,
-    reviewState: NonNullable<CaseDetail["authenticity"]>["reviewState"],
+    _id: string,
+    _reviewState: NonNullable<CaseDetail["authenticity"]>["reviewState"],
   ): Promise<CaseDetail> {
-    return this.api(`/api/cases/${encodeURIComponent(id)}/authenticity`, {
+    return Promise.reject(new Error("Authenticity review state is set from GPTZero findings on the case, not a local toggle."));
+  }
+
+  async listGuidelines(query?: string): Promise<GuidelineClause[]> {
+    const list = await this.listCases();
+    return mapGuidelines(list.cases, query);
+  }
+
+  async getAnalytics(): Promise<AnalyticsSummary> {
+    const [telemetry, list] = await Promise.all([
+      this.api<{ analytics: { status?: string; mode?: string; total?: number; failures?: number; averageDurationMs?: number; hourly?: { hour: string; ingested?: number; investigated?: number }[] } }>(
+        "/api/analytics/summary",
+      ),
+      this.listCases(),
+    ]);
+    return mapAnalytics(telemetry.analytics ?? {}, list.cases);
+  }
+
+  async getActivity(): Promise<ActivityItem[]> {
+    const list = await this.listCases();
+    return mapActivity(list.cases);
+  }
+
+  // Backend inbox routes identify the reviewer by header; the backend maps it to
+  // a tenant-scoped binding and refuses unknown identities.
+  private reviewerHeaders(): Record<string, string> {
+    const reviewer = process.env.NEXT_PUBLIC_LLOYD_REVIEWER_ID;
+    return reviewer ? { "x-reviewer-id": reviewer } : {};
+  }
+
+  async listIntakes(): Promise<IntakeInboxItem[]> {
+    try {
+      const result = await this.api<{ items?: IntakeInboxItem[] }>("/api/intakes", { headers: this.reviewerHeaders() });
+      return result.items ?? [];
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("403")) return [];
+      throw error;
+    }
+  }
+
+  /**
+   * The merged queue. Both domains are queried independently and either may fail: a backend
+   * outage must not hide local work awaiting approval, and a gateway that cannot be reached
+   * makes device counts unknown rather than zero (workspace TDD §3).
+   */
+  async listIntakeWork(filter: { tab?: IntakeTab } = {}): Promise<IntakeWorkResult> {
+    let deviceReason: string | null = null;
+    let backendReason: string | null = null;
+    const [device, backend, rejections] = await Promise.all([
+      getEdgeV2Client()
+        .listIntakes()
+        .then((result) => result.items as DeviceIntakeRow[])
+        .catch((error: unknown) => {
+          deviceReason = silenceReason(error);
+          return null;
+        }),
+      this.api<{ items?: BackendIntakeRow[] }>("/api/intakes?limit=100", { headers: this.reviewerHeaders() })
+        .then((result) => result.items ?? [])
+        .catch((error: unknown) => {
+          backendReason = silenceReason(error);
+          return null;
+        }),
+      this.api<{ items?: IntakeRejection[] }>("/api/intakes/rejections", { headers: this.reviewerHeaders() })
+        .then((result) => result.items ?? [])
+        .catch(() => null),
+    ]);
+    const merged = mergeIntakeWork({ device, backend, rejections, deviceReason, backendReason });
+    return filter.tab
+      ? { ...merged, items: merged.items.filter((item) => item.tab === filter.tab) }
+      : merged;
+  }
+
+  async getCaseDocuments(caseId: string): Promise<CaseDocument[]> {
+    const result = await this.api<{ documents?: CaseDocument[] }>(
+      `/api/cases/${encodeURIComponent(caseId)}/documents`,
+      { headers: this.reviewerHeaders() },
+    );
+    return result.documents ?? [];
+  }
+
+  /** The gateway retransmits the stored approved envelope; the backend dedupes on digest. */
+  async retryIntakeRelease(intakeId: string): Promise<IntakeWorkItem> {
+    await getEdgeV2Client().release(intakeId);
+    return this.requireWorkItem(intakeId);
+  }
+
+  async retryIntakeProcessing(intakeId: string): Promise<IntakeWorkItem> {
+    await this.api(`/api/intakes/${encodeURIComponent(intakeId)}/retry`, {
       method: "POST",
-      body: JSON.stringify({ reviewState }),
+      headers: this.reviewerHeaders(),
     });
+    return this.requireWorkItem(intakeId);
   }
 
-  listGuidelines(query?: string): Promise<GuidelineClause[]> {
-    const params = new URLSearchParams();
-    if (query) params.set("q", query);
-    return this.api(`/api/guidelines?${params.toString()}`);
+  private async requireWorkItem(intakeId: string): Promise<IntakeWorkItem> {
+    const found = (await this.listIntakeWork()).items.find((item) => item.intakeId === intakeId);
+    if (!found) throw new Error(`Intake ${intakeId} is no longer visible in either domain.`);
+    return found;
   }
 
-  getAnalytics(): Promise<AnalyticsSummary> {
-    return this.api("/api/analytics/summary");
+  getIntakeCandidates(intakeId: string): Promise<IntakeCandidatesResponse> {
+    return this.api(`/api/intakes/${encodeURIComponent(intakeId)}/candidates`, { headers: this.reviewerHeaders() });
   }
 
-  getActivity(): Promise<ActivityItem[]> {
-    return this.api("/api/activity");
+  async associateIntake(intakeId: string, caseId: string, reason: string): Promise<IntakeInboxItem> {
+    const result = await this.api<{ intake: IntakeInboxItem }>(`/api/intakes/${encodeURIComponent(intakeId)}/association`, {
+      method: "POST",
+      headers: this.reviewerHeaders(),
+      body: JSON.stringify({ caseId, reason }),
+    });
+    return result.intake;
   }
 
   getIntake(caseId: string): Promise<IntakeDocument> {
@@ -406,18 +549,6 @@ export class HttpLloydApi implements LloydApi {
     };
   }
 
-  private async pollInvestigation(
-    caseId: string,
-    investigationId: string,
-    onStep?: (step: InvestigationStep) => void,
-  ): Promise<CaseDetail> {
-    const investigation = await this.api<{ steps: InvestigationStep[] }>(
-      `/api/cases/${encodeURIComponent(caseId)}/investigations/${encodeURIComponent(investigationId)}`,
-    );
-    investigation.steps.forEach((step) => onStep?.(step));
-    return this.getCase(caseId);
-  }
-
   private api<T>(path: string, init?: RequestInit): Promise<T> {
     return this.request<T>(this.apiBase, path, init);
   }
@@ -446,6 +577,18 @@ export class HttpLloydApi implements LloydApi {
     }
     return response.json() as Promise<T>;
   }
+}
+
+/**
+ * Why a domain produced no rows. Refused and unreachable both leave the count unknown, but they
+ * ask for different things from the operator, so the workspace says which one happened.
+ */
+function silenceReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/\b401\b|\b403\b|FORBIDDEN|UNAUTHORIZED/i.test(message)) return "refused this browser's identity";
+  if (/NOT_CONFIGURED|not enabled/i.test(message)) return "has release contract v2 disabled";
+  if (/\b5\d\d\b|fetch failed|NetworkError|Failed to fetch/i.test(message)) return "did not answer";
+  return "could not be read";
 }
 
 function defaultIntakeSource(): "camera" | "fixture" | "upload" {

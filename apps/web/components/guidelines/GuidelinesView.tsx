@@ -15,13 +15,13 @@ export function GuidelinesView() {
     <div className="space-y-4">
       <div>
         <h1 className="font-serif text-[26px] text-navy">Appetite guidelines</h1>
-        <p className="text-sm text-muted">2025 commercial property clauses plus the demo authenticity policy pack.</p>
+        <p className="text-sm text-muted">2025 commercial property appetite, applied to the current submission queue.</p>
       </div>
       <input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search original language, factor, or source passage"
-        className="w-full max-w-xl rounded-sm border border-line bg-panel px-3 py-2"
+        className="h-8 w-full max-w-xl rounded-md border border-slate-200/80 bg-white px-3 text-[12.5px] transition-colors duration-150 ease-out hover:border-slate-300"
       />
       {loading && !data ? <p className="text-muted">Loading clauses…</p> : null}
       <div className="space-y-3">
@@ -52,7 +52,7 @@ export function GuidelinesView() {
               <p className="mt-2 text-[12px] text-muted">Affected submissions</p>
               <div className="mt-1 flex flex-wrap gap-2">
                 {clause.affectedSubmissionIds.length === 0 ? (
-                  <span className="text-[12px] text-muted">None in current fixture slice</span>
+                  <span className="text-[12px] text-muted">None in the current queue</span>
                 ) : (
                   clause.affectedSubmissionIds.map((id) => (
                     <Link key={id} href={`/cases/${encodeURIComponent(id)}`} className="text-[12px] text-navy underline decoration-line underline-offset-4">

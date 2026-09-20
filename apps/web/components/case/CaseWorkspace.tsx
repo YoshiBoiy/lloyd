@@ -6,10 +6,9 @@ import { ScanLine } from "lucide-react";
 import { getLloydApi } from "@/lib/api";
 import { useCase } from "@/lib/hooks";
 import { formatPercent, formatScore, formatTimestamp, formatUsdExact } from "@/lib/format";
-import type { AppetiteCriterion, CaseDetail, InvestigationStep } from "@/lib/api/types";
+import type { AppetiteCriterion, CaseDetail, CaseDocument, InvestigationStep } from "@/lib/api/types";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
-import { Modal } from "@/components/ui/Modal";
 import { CriterionBadge, DecisionBadge, EvidenceBadge } from "@/components/ui/Badge";
 import { AuthenticityReview } from "./AuthenticityReview";
 import { SimilarCases } from "./SimilarCases";
@@ -21,9 +20,6 @@ export function CaseWorkspace({ id }: { id: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ questions: string[]; rationale: string[] } | null>(null);
-  const [overrideOpen, setOverrideOpen] = useState(false);
-  const [overrideReason, setOverrideReason] = useState("");
-  const [note, setNote] = useState("");
   const [liveSteps, setLiveSteps] = useState<InvestigationStep[]>([]);
 
   async function run(fn: () => Promise<unknown>) {
@@ -108,7 +104,7 @@ export function CaseWorkspace({ id }: { id: string }) {
             }
           >
             {steps.length === 0 ? (
-              <p className="text-sm text-muted">No investigation steps yet. Run the mocked agent loop to populate Federato, Gemini, Elasticsearch, Atlas, OpenAI, and GPTZero.</p>
+              <p className="text-sm text-muted">No investigation steps yet. Run an investigation to query Federato, retrieve evidence, and refresh appetite.</p>
             ) : (
               <ol className="space-y-2">
                 {steps.map((step) => (
@@ -128,6 +124,7 @@ export function CaseWorkspace({ id }: { id: string }) {
             )}
           </Panel>
           <Panel title="Path to Yes">
+            {data.pathToYes.length === 0 ? <p className="text-sm text-muted">No outstanding path-to-yes items.</p> : null}
             <ol className="space-y-2">
               {data.pathToYes.map((step, index) => (
                 <li key={index} className="text-sm">
@@ -137,12 +134,6 @@ export function CaseWorkspace({ id }: { id: string }) {
               ))}
             </ol>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button disabled={busy} onClick={() => run(() => getLloydApi().applyBrokerResponse(data.id))}>
-                Simulate broker response
-              </Button>
-              <Button disabled={busy} onClick={() => run(() => getLloydApi().recalculate(data.id))}>
-                Recalculate decision
-              </Button>
               <Button
                 disabled={busy}
                 onClick={() =>
@@ -152,9 +143,6 @@ export function CaseWorkspace({ id }: { id: string }) {
                 }
               >
                 Draft information request
-              </Button>
-              <Button disabled={busy} onClick={() => setOverrideOpen(true)}>
-                Record human override
               </Button>
             </div>
             {draft ? (
@@ -183,6 +171,7 @@ export function CaseWorkspace({ id }: { id: string }) {
             }
           >
             <ul className="space-y-2">
+              {data.evidence.length === 0 ? <li className="text-sm text-muted">No evidence items on this file yet.</li> : null}
               {data.evidence.map((item) => (
                 <li key={item.evidenceId} className="border-b border-line pb-2 last:border-0">
                   <div className="flex items-center justify-between gap-2">
@@ -194,18 +183,14 @@ export function CaseWorkspace({ id }: { id: string }) {
                 </li>
               ))}
             </ul>
-            {data.intakeDocumentId ? (
-              <p className="mt-2 border-t border-line pt-2 text-[11px] text-muted">
-                Sanitized scan attached: <span className="tabular">{data.intakeDocumentId}</span>. The original stays on
-                the RDK X5; rescanning replaces this attachment.
-              </p>
-            ) : null}
+            <ScannedDocuments documents={data.documents} />
           </Panel>
           {data.authenticity ? <AuthenticityReview detail={data} busy={busy} onAction={(state) => run(() => getLloydApi().updateAuthenticity(data.id, state))} /> : null}
           <SimilarCases cases={data.similarCases} />
           <PrecedentMap current={data} />
           <Panel title="Activity">
             <ul className="space-y-2">
+              {data.activity.length === 0 ? <li className="text-sm text-muted">No activity recorded on this file.</li> : null}
               {data.activity.map((item) => (
                 <li key={item.id}>
                   <p className="text-[11px] text-muted">{formatTimestamp(item.at)} · {item.actor}</p>
@@ -214,64 +199,18 @@ export function CaseWorkspace({ id }: { id: string }) {
               ))}
             </ul>
           </Panel>
-          <Panel title="Human notes">
-            <form
-              className="space-y-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!note.trim()) return;
-                run(async () => {
-                  await getLloydApi().addNote(data.id, note.trim());
-                  setNote("");
-                });
-              }}
-            >
-              <textarea
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                className="h-20 w-full rounded-sm border border-line bg-paper p-2"
-                placeholder="Working note — not a decision"
-              />
-              <Button type="submit" disabled={busy || !note.trim()}>
-                Add note
-              </Button>
-            </form>
-            {data.notes.map((item) => (
-              <p key={item.id} className="mt-2 border-t border-line pt-2 text-[12.5px]">
-                <span className="text-muted">{item.author}: </span>
-                {item.body}
-              </p>
-            ))}
-          </Panel>
+          {data.notes.length > 0 ? (
+            <Panel title="Human notes">
+              {data.notes.map((item) => (
+                <p key={item.id} className="mt-2 border-t border-line pt-2 text-[12.5px] first:mt-0 first:border-0 first:pt-0">
+                  <span className="text-muted">{item.author}: </span>
+                  {item.body}
+                </p>
+              ))}
+            </Panel>
+          ) : null}
         </div>
       </div>
-
-      <Modal open={overrideOpen} title="Human override" onClose={() => setOverrideOpen(false)}>
-        <p className="text-sm text-muted">
-          Overrides require a reason and never rewrite the original agent recommendation.
-        </p>
-        <textarea
-          value={overrideReason}
-          onChange={(event) => setOverrideReason(event.target.value)}
-          className="mt-3 h-24 w-full rounded-sm border border-line bg-paper p-2"
-        />
-        <div className="mt-3 flex justify-end gap-2">
-          <Button onClick={() => setOverrideOpen(false)}>Cancel</Button>
-          <Button
-            tone="primary"
-            disabled={!overrideReason.trim()}
-            onClick={() =>
-              run(async () => {
-                await getLloydApi().recordOverride(data.id, overrideReason);
-                setOverrideOpen(false);
-                setOverrideReason("");
-              })
-            }
-          >
-            Record override
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -280,6 +219,7 @@ function FactsColumn({ detail }: { detail: CaseDetail }) {
   return (
     <Panel title="Normalized facts">
       <ul className="space-y-2">
+        {detail.facts.length === 0 ? <li className="text-sm text-muted">No normalized facts on this file.</li> : null}
         {detail.facts.map((fact) => (
           <li key={fact.id} className="border-b border-line pb-2 last:border-0">
             <div className="flex items-start justify-between gap-2">
@@ -294,6 +234,50 @@ function FactsColumn({ detail }: { detail: CaseDetail }) {
         ))}
       </ul>
     </Panel>
+  );
+}
+
+/**
+ * Scanned documents held by this case, newest first. A case can hold several: a new intake
+ * appends and a new revision of the same intake supersedes, so two loss runs are two evidence
+ * sources with separate provenance rather than one overwriting the other. Attaching a document
+ * does not promote any fact on its own — that stays with the deterministic evidence path.
+ */
+function ScannedDocuments({ documents }: { documents: CaseDocument[] }) {
+  if (documents.length === 0) return null;
+  return (
+    <div className="mt-2 border-t border-line pt-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+        Scanned documents ({documents.length})
+      </p>
+      <ul className="mt-1 space-y-1.5">
+        {documents.map((doc) => (
+          <li key={doc.intakeId} className="text-[12px]">
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium">{doc.documentType.replaceAll("_", " ")}</span>
+              <span className="tabular text-muted">
+                {doc.pageCount} page{doc.pageCount === 1 ? "" : "s"} · revision {doc.revision}
+              </span>
+              {doc.status === "PROCESSED_WITH_WARNINGS" ? (
+                <span className="text-amber">processed with warnings</span>
+              ) : null}
+              {doc.providerDocumentType && doc.providerDocumentType !== doc.documentType ? (
+                <span className="text-amber">provider read it as {doc.providerDocumentType.replaceAll("_", " ")}</span>
+              ) : null}
+            </div>
+            <p className="text-[11px] text-muted">
+              {doc.attachedBy} · {doc.associationSource.toLowerCase().replaceAll("_", " ")} ·{" "}
+              {formatTimestamp(doc.attachedAt)} · <span className="tabular">{doc.digest.slice(0, 12)}…</span>
+              {doc.supersedesRevision ? ` · supersedes revision ${doc.supersedesRevision}` : ""}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[11px] text-muted">
+        Originals stay on the RDK X5. Each document is a separate evidence source; none of them changes a verified fact
+        on its own.
+      </p>
+    </div>
   );
 }
 

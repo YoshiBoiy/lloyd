@@ -2,6 +2,7 @@ import type {
   AppetiteCriterion,
   AuthenticityFinding,
   CaseDetail,
+  CaseDocument,
   CaseSummary,
   CaseStage,
   DecisionClass,
@@ -672,8 +673,45 @@ export function detailFromRisk(
     override: null,
     simulation: false,
     version: phase === "preliminary" ? 1 : phase === "investigated" ? 2 : 3,
-    intakeDocumentId: risk.isDemo ? "doc:harbor-mill-inspection" : undefined,
+    documents: risk.isDemo ? demoDocuments() : [],
   };
+}
+
+/**
+ * The demo case holds two scans of different types, so the evidence list shows what a case with
+ * more than one document actually looks like: separate provenance per document, nothing merged.
+ */
+function demoDocuments(): CaseDocument[] {
+  return [
+    {
+      intakeId: "0f6a9d8e-3c21-4f6b-9a3e-7d2c1b0a5e44",
+      documentId: "doc:harbor-mill-inspection",
+      revision: 2,
+      digest: "9b2f0c4e7a1d3f5b8c6e0a2d4f6b8c0e1a3d5f7b9c1e3a5d7f9b1c3e5a7d9f1b",
+      documentType: "inspection_report",
+      providerDocumentType: "inspection_report",
+      pageCount: 2,
+      receivedAt: "2026-09-19T13:44:00.000Z",
+      attachedAt: "2026-09-19T13:45:00.000Z",
+      attachedBy: "A. Chen",
+      associationSource: "REVIEWER",
+      status: "PROCESSED",
+      supersedesRevision: 1,
+    },
+    {
+      intakeId: "b7c8d9e0-1f23-4456-8789-0abcdef12345",
+      documentId: "doc:harbor-mill-loss-run",
+      revision: 1,
+      digest: "5a7d9f1b9b2f0c4e7a1d3f5b8c6e0a2d4f6b8c0e1a3d5f7b9c1e3a5d7f9b1c3e",
+      documentType: "loss_run",
+      pageCount: 4,
+      receivedAt: "2026-09-19T11:20:00.000Z",
+      attachedAt: "2026-09-19T11:22:00.000Z",
+      attachedBy: "A. Chen",
+      associationSource: "REVIEWER",
+      status: "PROCESSED_WITH_WARNINGS",
+    },
+  ];
 }
 
 export const LANE_ORDER: Record<DecisionClass, number> = {

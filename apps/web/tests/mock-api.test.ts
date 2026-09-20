@@ -112,9 +112,13 @@ describe("case-scoped intake", () => {
     });
     expect(released.document.caseId).toBe(OTHER_CASE_ID);
     expect(released.document.manifest?.caseId).toBe(OTHER_CASE_ID);
-    expect((await client.getCase(OTHER_CASE_ID)).intakeDocumentId).toBe(released.document.documentId);
-    // The seeded demo case keeps its own fixture attachment untouched.
-    expect((await client.getCase(DEMO_CASE_ID)).intakeDocumentId).toBe(DEMO_DOCUMENT_ID);
+    expect((await client.getCase(OTHER_CASE_ID)).documents.map((d) => d.documentId)).toEqual([
+      released.document.documentId,
+    ]);
+    // The seeded demo case keeps its own fixture attachments untouched, newest first.
+    const demo = await client.getCase(DEMO_CASE_ID);
+    expect(demo.documents[0]?.documentId).toBe(DEMO_DOCUMENT_ID);
+    expect(demo.documents).toHaveLength(2);
     expect(released.document.documentId).not.toBe(DEMO_DOCUMENT_ID);
   });
 
