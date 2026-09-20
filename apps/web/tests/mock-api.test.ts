@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MockLloydApi } from "../lib/api/mock";
 import { MIN_RELEASE_CONFIDENCE, sanitizedText } from "../lib/api/types";
-import { DEMO_CASE_ID } from "../lib/fixtures/intake";
+import { DEMO_CASE_ID, DEMO_DOCUMENT_ID } from "../lib/fixtures/intake";
 
 function api() {
   return new MockLloydApi({ latencyMs: 0 });
@@ -62,7 +62,7 @@ describe("MockLloydApi demo state machine", () => {
 describe("secure intake release policy", () => {
   it("blocks automatic release while signature confidence is low", async () => {
     const client = api();
-    let document = await client.captureIntake();
+    let document = await client.captureIntake(DEMO_CASE_ID);
     expect(document.redactionConfidence).toBeLessThan(MIN_RELEASE_CONFIDENCE);
     await expect(
       client.approveAndRelease({
@@ -86,7 +86,7 @@ describe("secure intake release policy", () => {
 
   it("adds and removes redactions in the sanitized artifact", async () => {
     const client = api();
-    let document = await client.getIntake();
+    let document = await client.getIntake(DEMO_CASE_ID);
     const email = document.spans.find((span) => span.type === "email")!;
     document = await client.toggleRedaction(email.id, false);
     expect(sanitizedText(document.originalText, document.spans)).toContain("jordan.hale@harbormill.example");
@@ -95,5 +95,38 @@ describe("secure intake release policy", () => {
     const start = document.originalText.indexOf("Allegheny County");
     document = await client.addManualRedaction(start, start + "Allegheny County".length, "person_name");
     expect(document.spans.some((span) => span.text === "Allegheny County" && span.enabled)).toBe(true);
+  });
+});
+
+describe("case-scoped intake", () => {
+  const OTHER_CASE_ID = "case:1001";
+
+  it("attaches the released document to the case intake was launched from", async () => {
+    const client = api();
+    await client.captureIntake(OTHER_CASE_ID);
+    await client.toggleRedaction("span-signature", true);
+    const released = await client.approveAndRelease({
+      destinations: ["gemini"],
+      approvedBy: "A. Chen",
+      acceptLowConfidence: false,
+    });
+    expect(released.document.caseId).toBe(OTHER_CASE_ID);
+    expect(released.document.manifest?.caseId).toBe(OTHER_CASE_ID);
+    expect((await client.getCase(OTHER_CASE_ID)).documents.map((d) => d.documentId)).toEqual([
+      released.document.documentId,
+    ]);
+    // The seeded demo case keeps its own fixture attachments untouched, newest first.
+    const demo = await client.getCase(DEMO_CASE_ID);
+    expect(demo.documents[0]?.documentId).toBe(DEMO_DOCUMENT_ID);
+    expect(demo.documents).toHaveLength(2);
+    expect(released.document.documentId).not.toBe(DEMO_DOCUMENT_ID);
+  });
+
+  it("restarts intake when the reviewer switches cases mid-flow", async () => {
+    const client = api();
+    expect((await client.captureIntake(DEMO_CASE_ID)).stage).toBe("captured");
+    const switched = await client.getIntake(OTHER_CASE_ID);
+    expect(switched.caseId).toBe(OTHER_CASE_ID);
+    expect(switched.stage).toBe("idle");
   });
 });

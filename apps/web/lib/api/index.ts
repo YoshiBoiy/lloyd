@@ -17,10 +17,9 @@ export function getApiMode(): ApiMode {
 export function getLloydApi(): LloydApi {
   if (!singleton) {
     if (getApiMode() === "http") {
-      singleton = new HttpLloydApi(
-        process.env.NEXT_PUBLIC_LLOYD_API_URL ?? "http://localhost:8080",
-        process.env.NEXT_PUBLIC_LLOYD_EDGE_URL ?? "http://localhost:8787",
-      );
+      // Intake calls proxy same-origin through /api/edge/*; see
+      // app/api/edge/[...path]/route.ts and its EDGE_GATEWAY_URL env var.
+      singleton = new HttpLloydApi(process.env.NEXT_PUBLIC_LLOYD_API_URL ?? "");
     } else {
       mockSingleton = new MockLloydApi({ latencyMs: 140 });
       singleton = mockSingleton;

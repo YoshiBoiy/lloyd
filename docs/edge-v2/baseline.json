@@ -1,0 +1,24 @@
+{
+  "capturedAt": "2026-09-20T00:30:22.013471+00:00",
+  "sourceCommit": "cbe73dc45d8321fd02965524c8ad5f63f09bb382",
+  "dirtyPatchSha256": "63367edbe8aa0117725d2e7b3c083f47418e1e2d0e9cfacbc3bfcccd5ab67c16",
+  "untracked": {
+    "Federato_HTN2026_API_Challenge_Docs/API_DOCUMENTATION.pdf": "a178120a28035ed1843c3b94af8f437fcc9b7b375c83a81c2341a4f58ff597cf",
+    "Federato_HTN2026_API_Challenge_Docs/APPETITE_GUIDELINES.pdf": "2e1a849f6e751f71f125d43df4872764843337666f76fcc3db5fec3093496ac3",
+    "Federato_HTN2026_API_Challenge_Docs/DATA_SCHEMA.pdf": "d0c3acc164c0785c2a018089b2f6cd6cb5864dd0f3d920bb36eefaa610759ee9",
+    "Federato_HTN2026_API_Challenge_Docs/GLOSSARY.pdf": "d4cd47e35fb7fe035fed14bf8e3d3a1a35a98723c61720e24eb4be0d41f65ede",
+    "Federato_HTN2026_API_Challenge_Docs/QUERY_REQUEST_BODY.pdf": "3f4ee992adaeb3fd16cd4650eae1185843b153cb26cce070c76079f4ee97487e",
+    "Federato_HTN2026_API_Challenge_Docs/README.txt": "ae500dd97cc25d8d32abcc2a8eaff4fc57e77502cdacb7d3f3e8670758d3c063",
+    "Federato_HTN2026_API_Challenge_Docs/STUDENT_PROJECT_GUIDELINES.pdf": "d08ea2ba0912dec66fca53d06a91cb1d42db7852b52a4cafd84d8155dd36019b",
+    "Lloyd_Edge_Cloud_TDD_v2.md": "b13c2020c04545ac9a0240e19b60e364026f2f346b9801b1c59117d754dd2410",
+    "apps/web/.env.example": "0f61748bbdc265f64aebe1818188c15557acfb0bd80eed37dc7f6bc2d430e94e",
+    "apps/web/app/api/edge/[...path]/route.ts": "9e58a9000688ed502c5dace801747cb3437d63e008e8f674002e16dc38363082",
+    "apps/web/app/cases/[id]/intake/page.tsx": "d378b56654533f85a11160b6de839a969b8bb43656101a83aee5ac962ebe101d",
+    "apps/web/tests/http-intake.test.ts": "27136ef854798c9a63a7e142a14795a1dfb2dd6dc20fa5561639781a768978a9",
+    "apps/web/tests/intake-entry-points.test.tsx": "dc410affbbcaa539f32a7cd6d3381469aa2fe53be7abca58c5091f66e74fe83e",
+    "federato-mapping.json": "3d1a8845400ffdf09f9ec6e024753ea921231146c721d537382572b52627455d",
+    "tests/foundry.test.ts": "9e463f336f3fd3221c8260cb76da96e2c4347587a8b692050fef48f23982793f"
+  },
+  "deployedArtifactDigest": null,
+  "deploymentStatus": "Not accessed; board digest and physical acceptance remain required"
+}

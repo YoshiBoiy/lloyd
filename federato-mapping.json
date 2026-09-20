@@ -1,0 +1,48 @@
+{
+  "schemaHash": "c990c8b5151f4c3739dbed73786e74a3583be687372c101538cf94ea11679a7a",
+  "resource": "Policy",
+  "idPath": "id",
+  "paths": {
+    "accountName": "insured.name",
+    "effectiveDate": "dates.effective",
+    "expirationDate": "dates.expiration",
+    "submissionType": "business_type",
+    "lineOfBusiness": "line_of_business",
+    "premium": "premium"
+  },
+  "valueMaps": {
+    "submissionType": {
+      "new": "new_business"
+    }
+  },
+  "propertyExposure": {
+    "path": "exposure_units",
+    "locationField": "location",
+    "stateField": "state",
+    "buildingsField": "buildings",
+    "tivField": "tiv",
+    "yearBuiltField": "year_built",
+    "constructionField": "construction_type",
+    "constructionMap": {
+      "Frame": "frame",
+      "Wood Frame": "frame",
+      "Joisted Masonry": "joisted_masonry",
+      "Non-Combustible": "noncombustible",
+      "Steel Frame": "steel",
+      "Masonry Non-Combustible": "masonry_noncombustible",
+      "Fire Resistive": "masonry_noncombustible",
+      "Modified Fire Resistive": "masonry_noncombustible"
+    }
+  },
+  "claims": {
+    "path": "claims",
+    "dateField": "date_of_loss",
+    "amountFields": [
+      "paid_indemnity",
+      "paid_expense",
+      "reserve_indemnity",
+      "reserve_expense"
+    ]
+  },
+  "confirmed": true
+}

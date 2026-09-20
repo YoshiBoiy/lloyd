@@ -5,6 +5,16 @@ import {
   sha256,
   type SanitizedIntake,
 } from "../../contracts/src/index.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import type { VerifiedV2 } from "../../contracts/src/intake-v2.js";
+import {
+  ExtractionV2,
+  GEMINI_V2_PROMPT,
+  ProvenanceError,
+  blocksOf,
+  fixtureExtractionV2,
+  validateExtractionV2,
+} from "./extraction-v2.js";
 import { requestJson, type Transport } from "./federato.js";
 export const Candidate = z
   .object({
@@ -173,6 +183,128 @@ export class ModelServices {
       return { status: "UNAVAILABLE", documentId: data.manifest.documentId };
     }
   }
+  /**
+   * Typed, provenance-bound extraction for a verified v2 release (TDD §7.2). The provider sees
+   * only released block text; every value is validated against its cited excerpt, totals are
+   * recomputed, and the local classification is recorded alongside the provider's for comparison.
+   */
+  async extractV2(verified: VerifiedV2) {
+    const m = verified.data.manifest;
+    const blocks = blocksOf(verified);
+    const key = "gemini-v2:" + verified.digest;
+    if (this.cache.has(key)) return this.cache.get(key);
+    const localType =
+      m.classification.status === "CLASSIFIED"
+        ? m.classification.documentType
+        : null;
+    const base = {
+      documentId: m.documentId,
+      intakeId: m.intakeId,
+      revision: m.revision,
+      contentHash: verified.digest,
+      localDocumentType: localType,
+    };
+    try {
+      let raw: unknown;
+      if (!this.config.geminiKey)
+        raw = fixtureExtractionV2(blocks, localType ?? "unknown");
+      else {
+        const response = await requestJson(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.config.geminiModel ?? "gemini-2.5-flash")}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-goog-api-key": this.config.geminiKey,
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    { text: GEMINI_V2_PROMPT },
+                    {
+                      text: JSON.stringify({
+                        blocks: blocks.map((b) => ({
+                          id: b.id,
+                          page: b.page,
+                          text: b.text,
+                        })),
+                      }),
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0,
+                responseMimeType: "application/json",
+                responseJsonSchema: zodToJsonSchema(ExtractionV2, {
+                  $refStrategy: "none",
+                }),
+              },
+            }),
+          },
+          this.transport,
+        );
+        const result = z
+          .object({
+            candidates: z.array(
+              z.object({
+                content: z.object({
+                  parts: z.array(z.object({ text: z.string() })),
+                }),
+              }),
+            ),
+          })
+          .parse(response);
+        raw = JSON.parse(
+          result.candidates[0]!.content.parts.map((p) => p.text).join(""),
+        );
+      }
+      const extraction = validateExtractionV2(raw, blocks);
+      const result = {
+        ...base,
+        status: "CANDIDATE_UNVERIFIED",
+        mode: this.config.geminiKey ? "live" : "fixture",
+        providerDocumentType: extraction.documentType,
+        classificationAgreement:
+          localType === null
+            ? "LOCAL_UNAVAILABLE"
+            : localType === extraction.documentType
+              ? "AGREE"
+              : "DISAGREE",
+        extraction,
+      };
+      this.cache.set(key, result);
+      return result;
+    } catch (error) {
+      return {
+        ...base,
+        status:
+          error instanceof ProvenanceError
+            ? "REJECTED_PROVENANCE"
+            : "UNAVAILABLE",
+        mode: this.config.geminiKey ? "live" : "fixture",
+      };
+    }
+  }
+  /** Authorship analysis over already-verified sanitized text (v2 path); identical policy handling to `authorship`. */
+  async authorshipText(
+    text: string,
+    ids: { documentId: string; contentHash: string },
+    policy?: { version: string; reviewThreshold: number },
+  ) {
+    assertSanitizedText(text);
+    return this.detect(
+      text,
+      {
+        documentId: ids.documentId,
+        contentHash: ids.contentHash,
+        applicablePolicy: policy?.version ?? null,
+        scannedAt: new Date().toISOString(),
+      },
+      policy,
+    );
+  }
   async authorship(
     input: SanitizedIntake,
     policy?: { version: string; reviewThreshold: number },
@@ -190,7 +322,19 @@ export class ModelServices {
       applicablePolicy: policy?.version ?? null,
       scannedAt: new Date().toISOString(),
     };
-    if (data.artifact.text.length < 250)
+    return this.detect(data.artifact.text, base, policy);
+  }
+  private async detect(
+    text: string,
+    base: {
+      documentId: string;
+      contentHash: string;
+      applicablePolicy: string | null;
+      scannedAt: string;
+    },
+    policy?: { version: string; reviewThreshold: number },
+  ) {
+    if (text.length < 250)
       return { ...base, outcome: "UNAVAILABLE", reason: "INSUFFICIENT_TEXT" };
     if (!this.config.gptzeroKey)
       return {
@@ -208,7 +352,7 @@ export class ModelServices {
             "content-type": "application/json",
             "x-api-key": this.config.gptzeroKey,
           },
-          body: JSON.stringify({ document: data.artifact.text }),
+          body: JSON.stringify({ document: text }),
         },
         this.transport,
       );

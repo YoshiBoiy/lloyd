@@ -6,17 +6,27 @@ export function Panel({
   className,
   title,
   actions,
+  elevated = false,
 }: {
   children: ReactNode;
   className?: string;
   title?: string;
   actions?: ReactNode;
+  elevated?: boolean;
 }) {
   return (
-    <section className={classNames("rounded-sm border border-line bg-panel paper-shadow", className)}>
+    <section
+      className={classNames(
+        "rounded-md",
+        elevated
+          ? "border border-slate-200/60 bg-white shadow-sm"
+          : "border border-line bg-panel paper-shadow",
+        className,
+      )}
+    >
       {title ? (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{title}</h2>
+        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
+          <h2 className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</h2>
           {actions}
         </header>
       ) : null}

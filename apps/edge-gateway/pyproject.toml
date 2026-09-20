@@ -5,10 +5,12 @@ build-backend = "setuptools.build_meta"
 name = "lloyd-edge-gateway"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "cryptography>=44", "pillow>=11", "httpx>=0.28,<1", "pydantic>=2.10,<3"]
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "cryptography>=44", "pillow>=11", "httpx>=0.28,<1", "pydantic>=2.10,<3", "rfc8785==0.1.4", "jsonschema==4.26.0"]
 [project.optional-dependencies]
 test = ["pytest>=8", "ruff>=0.12"]
 vision = ["opencv-python-headless>=4.10", "pytesseract>=0.3.13"]
+# Optional still-image OCR; PyTorch and Paddle are not required.
+ocr = ["rapidocr-onnxruntime==1.4.4", "onnxruntime==1.23.2"]
 [tool.setuptools.packages.find]
 include = ["gateway*"]
 [tool.pytest.ini_options]
@@ -17,3 +19,6 @@ pythonpath = ["."]
 line-length = 120
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
+
+[tool.setuptools.package-data]
+gateway = ["*.schema.json"]

@@ -49,7 +49,12 @@ export function Badge({
   className?: string;
 }) {
   return (
-    <span className={classNames("inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium tracking-wide uppercase", className)}>
+    <span
+      className={classNames(
+        "inline-flex items-center rounded-full px-2 py-[3px] text-[11px] font-medium",
+        className,
+      )}
+    >
       {children}
     </span>
   );

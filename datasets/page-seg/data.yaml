@@ -1,0 +1,6 @@
+# The training script supplies an absolute path in its generated configuration.
+path: .
+train: images/train
+val: images/val
+names:
+  0: page

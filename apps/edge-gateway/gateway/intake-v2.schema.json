@@ -1,0 +1,567 @@
+{
+  "$ref": "#/definitions/IntakeV2",
+  "definitions": {
+    "IntakeV2": {
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "intakeId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "documentId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "deviceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            },
+            "tenantId": {
+              "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+            },
+            "caseId": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "policyVersion": {
+              "type": "string",
+              "const": "privacy-v2-text-only"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "classification": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "CLASSIFIED",
+                    "ABSTAINED",
+                    "UNAVAILABLE"
+                  ]
+                },
+                "documentType": {
+                  "type": "string",
+                  "enum": [
+                    "inspection_report",
+                    "loss_run",
+                    "statement_of_values",
+                    "application",
+                    "policy_document",
+                    "correspondence",
+                    "mixed",
+                    "unknown"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "calibration": {
+                  "type": "string",
+                  "enum": [
+                    "CALIBRATED",
+                    "UNCALIBRATED"
+                  ]
+                },
+                "alternatives": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/documentType"
+                      },
+                      "confidence": {
+                        "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/confidence"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "confidence"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 8
+                },
+                "attributes": {
+                  "type": "object",
+                  "properties": {
+                    "language": {
+                      "type": "string",
+                      "enum": [
+                        "en",
+                        "unknown"
+                      ]
+                    },
+                    "pageCount": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 20
+                    },
+                    "hasTables": {
+                      "type": "boolean"
+                    },
+                    "lineOfBusiness": {
+                      "type": "string",
+                      "enum": [
+                        "property",
+                        "casualty",
+                        "mixed",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "language",
+                    "pageCount",
+                    "hasTables",
+                    "lineOfBusiness"
+                  ],
+                  "additionalProperties": false
+                },
+                "modelId": {
+                  "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+                },
+                "artifactDigest": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "runtimeVersion": {
+                  "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+                },
+                "latencyMs": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 3600000
+                },
+                "evidenceIds": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+                  },
+                  "maxItems": 2000
+                }
+              },
+              "required": [
+                "status",
+                "documentType",
+                "confidence",
+                "calibration",
+                "alternatives",
+                "attributes",
+                "modelId",
+                "artifactDigest",
+                "runtimeVersion",
+                "latencyMs",
+                "evidenceIds"
+              ],
+              "additionalProperties": false
+            },
+            "matchHints": {
+              "type": "object",
+              "properties": {
+                "documentType": {
+                  "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/documentType"
+                },
+                "riskState": {
+                  "type": "string",
+                  "enum": [
+                    "AL",
+                    "AK",
+                    "AZ",
+                    "AR",
+                    "CA",
+                    "CO",
+                    "CT",
+                    "DE",
+                    "FL",
+                    "GA",
+                    "HI",
+                    "ID",
+                    "IL",
+                    "IN",
+                    "IA",
+                    "KS",
+                    "KY",
+                    "LA",
+                    "ME",
+                    "MD",
+                    "MA",
+                    "MI",
+                    "MN",
+                    "MS",
+                    "MO",
+                    "MT",
+                    "NE",
+                    "NV",
+                    "NH",
+                    "NJ",
+                    "NM",
+                    "NY",
+                    "NC",
+                    "ND",
+                    "OH",
+                    "OK",
+                    "OR",
+                    "PA",
+                    "RI",
+                    "SC",
+                    "SD",
+                    "TN",
+                    "TX",
+                    "UT",
+                    "VT",
+                    "VA",
+                    "WA",
+                    "WV",
+                    "WI",
+                    "WY"
+                  ]
+                },
+                "lineOfBusiness": {
+                  "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/attributes/properties/lineOfBusiness"
+                },
+                "yearRange": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": [
+                    {
+                      "type": "integer",
+                      "minimum": 1900,
+                      "maximum": 2200
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1900,
+                      "maximum": 2200
+                    }
+                  ]
+                },
+                "tivBucket": {
+                  "type": "string",
+                  "enum": [
+                    "lt_1m",
+                    "1m_10m",
+                    "10m_100m",
+                    "gte_100m"
+                  ]
+                }
+              },
+              "required": [
+                "documentType"
+              ],
+              "additionalProperties": false
+            },
+            "quality": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "PASS",
+                    "REVIEW",
+                    "RECAPTURE"
+                  ]
+                },
+                "reasons": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "BLUR",
+                      "CLIPPED_PAGE",
+                      "GLARE_OCCLUSION",
+                      "EMPTY_OCR",
+                      "LOW_TEXT_CONFIDENCE",
+                      "PERSPECTIVE_UNCERTAIN",
+                      "UNCALIBRATED_POLICY"
+                    ]
+                  },
+                  "maxItems": 7
+                },
+                "policyVersion": {
+                  "type": "string",
+                  "const": "quality-v2-provisional"
+                },
+                "pageCount": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 20
+                }
+              },
+              "required": [
+                "status",
+                "reasons",
+                "policyVersion",
+                "pageCount"
+              ],
+              "additionalProperties": false
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "pattern": "^field_[0-9]+\\.[a-z_]+$"
+                  },
+                  "classification": {
+                    "type": "string",
+                    "enum": [
+                      "redacted",
+                      "tokenized",
+                      "generalized",
+                      "cloud_allowed"
+                    ]
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic-pattern-v1",
+                      "local-semantic-v1",
+                      "operator-v2"
+                    ]
+                  },
+                  "confidence": {
+                    "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/confidence"
+                  }
+                },
+                "required": [
+                  "path",
+                  "classification",
+                  "method",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 2000
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+                  },
+                  "mediaType": {
+                    "type": "string",
+                    "const": "text/plain"
+                  },
+                  "byteLength": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2000000
+                  },
+                  "sha256": {
+                    "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/artifactDigest/anyOf/0"
+                  },
+                  "page": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20
+                  },
+                  "blockId": {
+                    "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+                  },
+                  "box": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": [
+                          {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "mediaType",
+                  "byteLength",
+                  "sha256",
+                  "page",
+                  "blockId",
+                  "box"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 2000
+            },
+            "destinations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "lloyd-api",
+                  "gemini",
+                  "openai",
+                  "gptzero",
+                  "elasticsearch"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 5
+            },
+            "approval": {
+              "type": "object",
+              "properties": {
+                "reviewerId": {
+                  "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+                },
+                "approvedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "acknowledgedQuality": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "reviewerId",
+                "approvedAt",
+                "expiresAt",
+                "acknowledgedQuality"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "version",
+            "intakeId",
+            "documentId",
+            "revision",
+            "deviceId",
+            "tenantId",
+            "caseId",
+            "policyVersion",
+            "createdAt",
+            "classification",
+            "matchHints",
+            "quality",
+            "fields",
+            "artifacts",
+            "destinations",
+            "approval"
+          ],
+          "additionalProperties": false
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+              },
+              "mediaType": {
+                "type": "string",
+                "const": "text/plain"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000000
+              }
+            },
+            "required": [
+              "id",
+              "mediaType",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 2000
+        },
+        "authentication": {
+          "type": "object",
+          "properties": {
+            "keyId": {
+              "$ref": "#/definitions/IntakeV2/properties/manifest/properties/deviceId"
+            },
+            "algorithm": {
+              "type": "string",
+              "const": "HMAC-SHA256"
+            },
+            "signature": {
+              "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/artifactDigest/anyOf/0"
+            },
+            "reviewerSignature": {
+              "$ref": "#/definitions/IntakeV2/properties/manifest/properties/classification/properties/artifactDigest/anyOf/0"
+            }
+          },
+          "required": [
+            "keyId",
+            "algorithm",
+            "signature",
+            "reviewerSignature"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "manifest",
+        "artifacts",
+        "authentication"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -88,7 +88,7 @@ export class SchemaGraph {
     traversable: string[] = [],
     raw = false,
   ): Field {
-    let fields = this.schema.resources[resource]?.fields;
+    let fields: Record<string, Field> | undefined = this.schema.resources[resource]?.fields;
     if (!fields) return fail(`Unknown resource: ${resource}`);
     const parts = path.split(".");
     let result: Field | undefined;
@@ -134,7 +134,7 @@ export class SchemaGraph {
     resource: string,
     path: string,
   ): { arrays: string[]; references: string[] } {
-    let fields = this.schema.resources[resource]?.fields;
+    let fields: Record<string, Field> | undefined = this.schema.resources[resource]?.fields;
     if (!fields) fail(`Unknown resource: ${resource}`);
     const arrays: string[] = [],
       references: string[] = [],

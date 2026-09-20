@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { useCaseList, useLloydSnapshot } from "@/lib/hooks";
 import { getLloydApi } from "@/lib/api";
@@ -9,7 +9,6 @@ import { formatPercent, formatScore, formatTimestamp, formatUsd } from "@/lib/fo
 import type { CaseListFilters, CaseStage, DecisionClass } from "@/lib/api/types";
 import { DecisionBadge, StageBadge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
-import { DEMO_CASE_ID } from "@/lib/fixtures/intake";
 
 const DECISIONS: Array<DecisionClass | ""> = [
   "",
@@ -20,6 +19,11 @@ const DECISIONS: Array<DecisionClass | ""> = [
 ];
 const STAGES: Array<CaseStage | ""> = ["", "NEW", "INVESTIGATING", "NEEDS_REVIEW", "READY_TO_QUOTE"];
 const STATES = ["", "PA", "OH", "MD", "CO", "CA", "FL", "NC", "SC", "GA", "VA", "UT", "NY", "TX", "AZ", "ID"];
+
+const controlClass =
+  "h-8 rounded-md border border-slate-200/80 bg-white text-[12.5px] text-ink transition-colors duration-150 ease-out hover:border-slate-300 hover:bg-slate-50/70";
+const selectClass =
+  `${controlClass} appearance-none bg-[length:14px] bg-[right_8px_center] bg-no-repeat py-0 pl-2.5 pr-7 [background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")]`;
 
 export function DashboardView() {
   const [filters, setFilters] = useState<CaseListFilters>({ search: "" });
@@ -45,112 +49,113 @@ export function DashboardView() {
             {data ? `${data.totals.all} commercial property files` : "Loading ranked queue"} · lanes precede numeric score
           </p>
         </div>
-        <Link href={`/cases/${encodeURIComponent(DEMO_CASE_ID)}`} className="text-[12.5px] text-navy underline decoration-line underline-offset-4">
-          Open seeded demo case
-        </Link>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
         {cards.map((card) => (
-          <Panel key={card.label}>
-            <div className="px-3 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{card.label}</p>
-              <p className="mt-1 font-serif text-3xl tabular text-navy">{card.value}</p>
-              <p className="text-[12px] text-muted">{card.hint}</p>
+          <Panel key={card.label} elevated>
+            <div className="px-3.5 py-3.5">
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-slate-500">{card.label}</p>
+              <p className="mt-1.5 text-[32px] font-bold leading-none tracking-tight tabular text-navy">{card.value}</p>
+              <p className="mt-1.5 text-[11px] text-faint">{card.hint}</p>
             </div>
           </Panel>
         ))}
       </div>
 
       <div className="grid grid-cols-[1fr_280px] gap-3">
-        <Panel>
-          <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+        <Panel elevated>
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2.5">
             <label className="relative min-w-[220px] flex-1">
-              <Search size={14} className="absolute left-2 top-2.5 text-muted" />
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
               <input
                 value={filters.search ?? ""}
                 onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
                 placeholder="Search account, broker, state"
-                className="w-full rounded-sm border border-line bg-paper py-1.5 pl-7 pr-2"
+                className={`${controlClass} w-full py-0 pl-8 pr-2.5`}
               />
             </label>
-            <select
-              className="rounded-sm border border-line bg-paper px-2 py-1.5"
+            <FilterSelect
               value={filters.state ?? ""}
-              onChange={(event) => setFilters((current) => ({ ...current, state: event.target.value }))}
+              onChange={(state) => setFilters((current) => ({ ...current, state }))}
             >
               {STATES.map((state) => (
                 <option key={state || "all"} value={state}>
                   {state || "All states"}
                 </option>
               ))}
-            </select>
-            <select
-              className="rounded-sm border border-line bg-paper px-2 py-1.5"
+            </FilterSelect>
+            <FilterSelect
               value={filters.decision ?? ""}
-              onChange={(event) => setFilters((current) => ({ ...current, decision: event.target.value as DecisionClass | "" }))}
+              onChange={(decision) =>
+                setFilters((current) => ({ ...current, decision: decision as DecisionClass | "" }))
+              }
             >
               {DECISIONS.map((value) => (
                 <option key={value || "all"} value={value}>
                   {value ? value.replaceAll("_", " ") : "All decisions"}
                 </option>
               ))}
-            </select>
-            <select
-              className="rounded-sm border border-line bg-paper px-2 py-1.5"
+            </FilterSelect>
+            <FilterSelect
               value={filters.stage ?? ""}
-              onChange={(event) => setFilters((current) => ({ ...current, stage: event.target.value as CaseStage | "" }))}
+              onChange={(stage) => setFilters((current) => ({ ...current, stage: stage as CaseStage | "" }))}
             >
               {STAGES.map((value) => (
                 <option key={value || "all"} value={value}>
                   {value ? value.replaceAll("_", " ") : "All stages"}
                 </option>
               ))}
-            </select>
+            </FilterSelect>
           </div>
           <div className="overflow-x-auto">
             {error ? <p className="px-3 py-6 text-crimson">{error}</p> : null}
             {loading && !data ? <p className="px-3 py-6 text-muted">Loading submissions…</p> : null}
             <table className="w-full min-w-[960px] text-left">
-              <thead className="border-b border-line bg-panel-2 text-[11px] uppercase tracking-[0.12em] text-muted">
+              <thead className="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Account</th>
-                  <th className="px-3 py-2 font-medium">Appetite</th>
-                  <th className="px-3 py-2 font-medium">Stage</th>
-                  <th className="px-3 py-2 font-medium">Score</th>
-                  <th className="px-3 py-2 font-medium">Complete</th>
-                  <th className="px-3 py-2 font-medium">Premium</th>
-                  <th className="px-3 py-2 font-medium">TIV</th>
-                  <th className="px-3 py-2 font-medium">State</th>
-                  <th className="px-3 py-2 font-medium">Broker</th>
-                  <th className="px-3 py-2 font-medium">Assignee</th>
+                  <th className="px-3 py-2.5 text-left font-medium">Account</th>
+                  <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium">Appetite</th>
+                  <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium">Stage</th>
+                  <th className="w-[1%] whitespace-nowrap px-3 py-2.5 text-right font-medium">Score</th>
+                  <th className="w-[1%] whitespace-nowrap px-3 py-2.5 text-right font-medium">Complete</th>
+                  <th className="w-[1%] whitespace-nowrap px-3 py-2.5 text-right font-medium">Premium</th>
+                  <th className="w-[1%] whitespace-nowrap px-3 py-2.5 pr-5 text-right font-medium">Tiv</th>
+                  <th className="whitespace-nowrap px-3 py-2.5 pl-4 text-left font-medium">State</th>
+                  <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium">Broker</th>
+                  <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium">Assignee</th>
                 </tr>
               </thead>
               <tbody>
                 {data?.cases.map((item) => (
-                  <tr key={item.id} className="border-b border-line last:border-0 hover:bg-paper">
-                    <td className="px-3 py-2">
-                      <Link href={`/cases/${encodeURIComponent(item.id)}`} className="font-medium text-navy hover:underline">
+                  <tr
+                    key={item.id}
+                    className="border-b border-slate-100 transition-colors duration-150 ease-out last:border-0 hover:bg-slate-50/80"
+                  >
+                    <td className="px-3 py-2.5">
+                      <Link
+                        href={`/cases/${encodeURIComponent(item.id)}`}
+                        className="font-medium text-navy transition-colors duration-150 ease-out hover:text-navy-2"
+                      >
                         {item.accountName}
                       </Link>
-                      <p className="text-[11px] text-muted">
+                      <p className="text-[11px] text-faint">
                         {item.submissionType === "new_business" ? "New business" : "Renewal"}
-                        {item.isDemo ? " · Demo" : ""}
                       </p>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2.5">
                       <DecisionBadge value={item.decision} />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2.5">
                       <StageBadge value={item.stage} />
                     </td>
-                    <td className="px-3 py-2 tabular">{formatScore(item.appetiteScore)}</td>
-                    <td className="px-3 py-2 tabular">{formatPercent(item.completeness)}</td>
-                    <td className="px-3 py-2 tabular">{formatUsd(item.premium)}</td>
-                    <td className="px-3 py-2 tabular">{formatUsd(item.tiv)}</td>
-                    <td className="px-3 py-2">{item.state}</td>
-                    <td className="px-3 py-2">{item.broker}</td>
-                    <td className="px-3 py-2">{item.assignee}</td>
+                    <td className="w-[1%] whitespace-nowrap px-3 py-2.5 text-right tabular">{formatScore(item.appetiteScore)}</td>
+                    <td className="w-[1%] whitespace-nowrap px-3 py-2.5 text-right tabular">{formatPercent(item.completeness)}</td>
+                    <td className="w-[1%] whitespace-nowrap px-3 py-2.5 text-right tabular">{item.premium ? formatUsd(item.premium) : "—"}</td>
+                    <td className="w-[1%] whitespace-nowrap px-3 py-2.5 pr-5 text-right tabular">{item.tiv ? formatUsd(item.tiv) : "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 pl-4">{item.state}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5">{item.broker === "—" ? "—" : item.broker}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5">{item.assignee === "—" ? "—" : item.assignee}</td>
                   </tr>
                 ))}
               </tbody>
@@ -158,18 +163,38 @@ export function DashboardView() {
           </div>
         </Panel>
 
-        <Panel title="Live investigation activity">
+        <Panel elevated title="Recent activity">
           <ul className="space-y-3">
-            {(activity.data ?? []).map((item) => (
+            {(activity.data ?? []).length === 0 ? (
+              <li className="text-sm text-muted">No recent file activity.</li>
+            ) : (
+              (activity.data ?? []).map((item) => (
               <li key={item.id}>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-muted">{formatTimestamp(item.at)}</p>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{formatTimestamp(item.at)}</p>
                 <p className="text-sm text-ink">{item.summary}</p>
-                <p className="text-[12px] text-muted">{item.actor}</p>
+                <p className="text-xs text-faint">{item.actor}</p>
               </li>
-            ))}
+              ))
+            )}
           </ul>
         </Panel>
       </div>
     </div>
+  );
+}
+
+function FilterSelect({
+  value,
+  onChange,
+  children,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <select value={value} onChange={(event) => onChange(event.target.value)} className={selectClass}>
+      {children}
+    </select>
   );
 }
