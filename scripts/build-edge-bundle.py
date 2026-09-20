@@ -131,6 +131,37 @@ def build(args: argparse.Namespace) -> int:
             "license": meta.get("license", "unknown"),
             "env": {"EDGE_DETECTOR_PATH": f"models/{detector.name}", "EDGE_DETECTOR_SHA256": digest},
         }
+    if getattr(args, "ocr_models", None):
+        source = Path(args.ocr_models).resolve()
+        metadata = json.loads((source / "manifest.json").read_bytes())
+        if metadata.get("format") != "lloyd-ocr-v1":
+            raise ValueError("Invalid OCR manifest")
+        selected = {"manifest.json", "LICENSE", "NOTICE"}
+        for role in ("textDetection", "textRecognition"):
+            entry = metadata["models"][role]
+            path = (source / entry["path"]).resolve()
+            if not path.is_relative_to(source) or not entry.get("license") or sha256_file(path) != entry["sha256"]:
+                raise ValueError("Invalid OCR model pin or license")
+            selected.add(entry["path"])
+        target = out / "models" / "ocr"
+        for name in sorted(selected):
+            source_file = source / name
+            destination = target / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, destination)
+            entries.append({"path": str(destination.relative_to(out)), "sha256": sha256_file(destination), "bytes": destination.stat().st_size})
+        models["ocr"] = {
+            "path": "models/ocr", "sha256": directory_digest(target),
+            "modelId": "ppocr-v4-det-rec", "license": "Apache-2.0", "runtime": metadata["runtime"],
+            "env": {
+                "EDGE_OCR": "region",
+                "EDGE_OCR_MANIFEST": "models/ocr/manifest.json",
+                "EDGE_OCR_MANIFEST_SHA256": sha256_file(target / "manifest.json"),
+                "EDGE_OCR_BATCH_SIZE": "4",
+                "EDGE_OCR_THREADS": "4",
+                "EDGE_OCR_DETECT_MAX_SIDE": "960",
+            },
+        }
     if args.wheelhouse:
         copy_tree(Path(args.wheelhouse), out / "wheelhouse", entries, "wheelhouse")
     licenses_dir = ROOT / "LICENSES"
@@ -201,6 +232,7 @@ def main() -> int:
     b.add_argument("--out", required=True)
     b.add_argument("--model", help="classifier JSON artifact from scripts/train-edge-classifier.py")
     b.add_argument("--detector", help="semantic detector artifact (spaCy model directory)")
+    b.add_argument("--ocr-models", help="pinned OCR directory from provision-ocr-models.py")
     b.add_argument("--wheelhouse", help="directory of pre-downloaded wheels for offline install")
     b.set_defaults(func=build)
     v = sub.add_parser("verify")

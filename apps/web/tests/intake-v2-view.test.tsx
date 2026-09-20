@@ -67,17 +67,18 @@ describe("IntakeV2View", () => {
     getEdgeV2Client(true);
   });
 
-  it("shows per-capability health, explains the proxy boundary, and starts a revision-1 intake", async () => {
+  it("starts a proxied intake without diagnostic capability chrome", async () => {
     render(<IntakeV2View caseId="case:1001" />);
-    await waitFor(() => expect(screen.getByText("gateway 2.0.0")).toBeInTheDocument());
-    expect(screen.getByText("local-text-v1")).toBeInTheDocument();
-    expect(screen.getByText("MODEL_MISSING")).toBeInTheDocument();
-    expect(screen.getByText(/require direct pairing/i)).toBeInTheDocument();
-    expect(screen.getByText(/Sanitized text is reviewed only over a direct pairing/i)).toBeInTheDocument();
-    // Proxied transport: capture is allowed, review/approve are not.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start intake" })).toBeEnabled());
+    expect(screen.queryByText("local-text-v1")).not.toBeInTheDocument();
+    expect(screen.queryByText("MODEL_MISSING")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Release contract v2/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/gateway 2\.0\.0/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Image redaction is text-layout only")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Local processing/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Live preview/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Start intake" }));
-    await waitFor(() => expect(screen.getByText(/revision 1 · 0 pages/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set case" })).toBeInTheDocument());
     const start = calls.find((c) => c.url.endsWith("/v2/intakes"));
     expect(start?.url).toBe("/api/edge/v2/intakes");
     expect(JSON.parse(start!.init!.body as string)).toEqual({
@@ -85,8 +86,7 @@ describe("IntakeV2View", () => {
       destinations: ["lloyd-api", "gemini", "gptzero", "elasticsearch"],
     });
     expect(new Headers(start!.init!.headers).has("authorization")).toBe(false);
-    expect(screen.getByRole("button", { name: /Approve revision/ })).toBeDisabled();
-    expect(screen.getByText("Image redaction is text-layout only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Approve/ })).not.toBeInTheDocument();
   });
 
   it("auto-pairs a USB workstation so live preview does not wait on a pasted token", async () => {
@@ -106,10 +106,9 @@ describe("IntakeV2View", () => {
       }),
     );
     render(<IntakeV2View />);
-    await waitFor(() => expect(screen.getByText("gateway 2.0.0")).toBeInTheDocument());
-    expect(screen.getByText(/Paired with this workstation over USB/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Live preview/ })).toBeEnabled());
     expect(screen.queryByRole("button", { name: /^Pair$/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Live preview/ })).not.toBeDisabled();
+    expect(screen.queryByText(/Paired with this workstation over USB/)).not.toBeInTheDocument();
     const health = calls.find((c) => String(c.url).endsWith("/health"));
     expect(health?.url).toBe("http://127.0.0.1:18001/health");
     expect(new Headers(health?.init?.headers).get("authorization")).toBe("Bearer usb-pair");
@@ -117,8 +116,7 @@ describe("IntakeV2View", () => {
 
   it("recovers an in-flight intake named in the route instead of orphaning it on reload", async () => {
     render(<IntakeV2View intakeId={STATUS.intakeId} />);
-    await waitFor(() => expect(screen.getByText(/revision 1 · 0 pages/)).toBeInTheDocument());
-    // Identity came from the route, so no intake was started and nothing was read from storage.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set case" })).toBeInTheDocument());
     expect(calls.some((c) => c.url.endsWith("/v2/intakes") && c.init?.method === "POST")).toBe(false);
     expect(calls.some((c) => c.url.endsWith(`/v2/intakes/${STATUS.intakeId}/status`))).toBe(true);
   });

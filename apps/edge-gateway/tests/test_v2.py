@@ -504,6 +504,8 @@ def test_health_capabilities_and_boundaries(v2):
     client, _, _, _ = v2
     health = client.get("/health").json()
     assert health["capabilities"]["classifier"]["ready"] and health["capabilities"]["classifier"]["modelId"] == "local-text-v1"
+    assert health["capabilities"]["pageDetector"]["ready"] is False
+    assert health["capabilities"]["pageDetector"]["backend"] == "unavailable"
     assert health["capabilities"]["imageRedaction"] == "TEXT_LAYOUT_ONLY"
     assert client.get("/health", headers={"origin": "https://hosted.example"}).status_code == 403
     allowed = client.get("/health", headers={"origin": "http://localhost:3000"})

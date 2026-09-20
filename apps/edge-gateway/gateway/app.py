@@ -25,6 +25,8 @@ from .capture import (
     preprocess,
 )
 from .contracts import Strict, Intake, Manifest, Artifact, Approval, Destination
+from .page_detect import PageDetector
+from .ocr_runtime import RegionOCR
 from .privacy import redact
 from .quality import QualityPolicy
 from .risk import ReviewRiskPolicy
@@ -90,16 +92,23 @@ class Settings:
         self.classifier_digest = env("EDGE_CLASSIFIER_SHA256", "")
         self.detector_path = env("EDGE_DETECTOR_PATH", "")
         self.detector_digest = env("EDGE_DETECTOR_SHA256", "")
+        self.page_detector_path = env("EDGE_PAGE_DETECTOR_PATH", "")
+        self.page_detector_digest = env("EDGE_PAGE_DETECTOR_SHA256", "")
+        self.page_detector_backend = env("EDGE_PAGE_DETECTOR_BACKEND", "auto")
+        self.page_score_min = float(env("EDGE_PAGE_SCORE_MIN", "0.35"))
+        self.page_input = int(env("EDGE_PAGE_INPUT", "640"))
         self.quality_policy = QualityPolicy(calibrated=_env_bool("EDGE_QUALITY_CALIBRATED"))
         self.review_risk_policy = ReviewRiskPolicy(calibrated=_env_bool("EDGE_REVIEW_RISK_CALIBRATED"))
         self.probe_camera = _env_bool("EDGE_HEALTH_PROBE_CAMERA", True)
 
 
-def create_app(settings: Settings | None = None, release_client: ReleaseClient | None = None, ocr=None, classifier=None, detector=None):
+def create_app(settings: Settings | None = None, release_client: ReleaseClient | None = None, ocr=None, classifier=None, detector=None, page_detector=None):
     settings = settings or Settings()
     store = LocalStore(settings.root, settings.retention)
     preview_lock = threading.Lock()
-    ocr = ocr or (PaddleOCRAdapter() if os.environ.get("EDGE_OCR") == "paddle" else LocalOCR())
+    if ocr is None:
+        mode = os.environ.get("EDGE_OCR", "tesseract")
+        ocr = RegionOCR() if mode == "region" else PaddleOCRAdapter() if mode == "paddle" else LocalOCR()
     release_client = release_client or ReleaseClient(
         os.environ.get("EDGE_BACKEND_URL", "http://127.0.0.1:3001/api/intake/sanitized"),
         os.environ.get("API_TOKEN", ""),
@@ -127,6 +136,10 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
             raise HTTPException(401, "Local authentication required")
 
     app = FastAPI(title="Lloyd local privacy gateway", lifespan=lifespan, dependencies=[Depends(authenticate)])
+    app.state.page_detector = page_detector or PageDetector(
+        settings.page_detector_path, settings.page_detector_digest,
+        settings.page_detector_backend, settings.page_score_min, settings.page_input,
+    )
     app.state.store = store
     app.state.settings = settings
 
@@ -194,9 +207,10 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
             "v2Enabled": settings.v2_enabled,
             "capabilities": {
                 "camera": camera_available() if settings.probe_camera else None,
-                "ocr": {"adapter": type(ocr).__name__, "ready": getattr(ocr, "available", lambda: True)()},
+                "ocr": ocr.capabilities() if hasattr(ocr, "capabilities") else {"adapter": type(ocr).__name__, "ready": getattr(ocr, "available", lambda: True)()},
                 "classifier": classifier,
                 "detector": detector,
+                "pageDetector": app.state.page_detector.capabilities(),
                 "qualityPolicy": settings.quality_policy.as_dict(),
                 "reviewRiskPolicy": settings.review_risk_policy.as_dict(),
                 "privacyPolicyVersion": "privacy-v2-text-only",
@@ -238,7 +252,7 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
                     ok, frame = camera.read()
                     if not ok or frame is None:
                         break
-                    annotated = annotate_preview_frame(frame, tracker)
+                    annotated = annotate_preview_frame(frame, tracker, app.state.page_detector)
                     ok, encoded = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
                     if not ok:
                         break
@@ -281,7 +295,7 @@ def create_app(settings: Settings | None = None, release_client: ReleaseClient |
         quality = {"confidence": 1.0, "adapter": "fixture-text", "status": "PASS", "reasons": []}
         original = content
         if media_type.startswith("image/"):
-            content, quality = preprocess(content, settings.quality_policy)
+            content, quality = preprocess(content, settings.quality_policy, app.state.page_detector)
             # v1 callers read a scalar confidence; derive it from the bounded status.
             quality["confidence"] = {"PASS": 0.9, "REVIEW": 0.4, "RECAPTURE": 0.0}[quality["status"]]
         document_id = str(uuid4())

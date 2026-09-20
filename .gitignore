@@ -11,3 +11,11 @@ edge-data/
 coverage/
 
 *.egg-info/
+
+# Local page training data / camera photos must never be committed.
+datasets/page-seg/images/
+datasets/page-seg/labels/
+datasets/page-seg/calib/
+datasets/page-seg/holdout/
+datasets/page-seg/downloads/
+datasets/page-seg/provenance.json

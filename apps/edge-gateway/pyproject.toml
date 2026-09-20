@@ -9,6 +9,8 @@ dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "cryptography>=44", "pi
 [project.optional-dependencies]
 test = ["pytest>=8", "ruff>=0.12"]
 vision = ["opencv-python-headless>=4.10", "pytesseract>=0.3.13"]
+# Optional still-image OCR; PyTorch and Paddle are not required.
+ocr = ["rapidocr-onnxruntime==1.4.4", "onnxruntime==1.23.2"]
 [tool.setuptools.packages.find]
 include = ["gateway*"]
 [tool.pytest.ini_options]

@@ -365,7 +365,7 @@ def install_v2(app, settings, store, ocr, release_client, classifier=None, detec
                 raise HTTPException(400, "Invalid page size")
             if media.startswith("image/"):
                 try:
-                    corrected, quality = preprocess(raw, settings.quality_policy)
+                    corrected, quality = preprocess(raw, settings.quality_policy, app.state.page_detector)
                 except (ValueError, OSError):
                     raise HTTPException(400, "Unreadable image") from None
             else:

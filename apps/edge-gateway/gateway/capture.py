@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -77,6 +78,7 @@ class OCRResult:
     width: int = 0
     height: int = 0
     orientation: int = 0
+    metrics: dict = field(default_factory=dict)
 
 
 class OCR(Protocol):
@@ -102,6 +104,15 @@ class LocalOCR:
         except Exception:
             return False
 
+    def capabilities(self):
+        ready = self.available()
+        return {
+            "adapter": "tesseract",
+            "ready": ready,
+            "backend": "cpu" if ready else "unavailable",
+            "fallback": None,
+        }
+
     def extract(self, content: bytes, media_type: str) -> OCRResult:
         if media_type == "text/plain":
             text = content.decode("utf-8")
@@ -126,54 +137,85 @@ class LocalOCR:
 
 
 class PaddleOCRAdapter:
-    """Optional PaddleOCR 3 adapter; initialized only by explicit local configuration.
+    """Optional PaddleOCR 3 pipeline, cached for all captures and serialized."""
 
-    Implements the same line/box contract as LocalOCR: one block per detected text line
-    with a corrected-page pixel box."""
+    def __init__(self, pipeline_factory=None):
+        self._pipeline = None
+        self._factory = pipeline_factory
+        self._lock = threading.Lock()
+        self.error = None
+        self.detection_dir = os.environ.get("EDGE_PADDLE_DETECTION_MODEL_DIR", "")
+        self.recognition_dir = os.environ.get("EDGE_PADDLE_RECOGNITION_MODEL_DIR", "")
+        self.batch_size = max(1, min(32, int(os.environ.get("EDGE_OCR_BATCH_SIZE", "8"))))
 
     def available(self) -> bool:
-        detection = os.environ.get("EDGE_PADDLE_DETECTION_MODEL_DIR", "")
-        recognition = os.environ.get("EDGE_PADDLE_RECOGNITION_MODEL_DIR", "")
-        return bool(detection and recognition and Path(detection).is_dir() and Path(recognition).is_dir())
+        from importlib.util import find_spec
+
+        return bool(self.detection_dir and self.recognition_dir
+                    and Path(self.detection_dir).is_dir() and Path(self.recognition_dir).is_dir()
+                    and (self._factory is not None or find_spec("paddleocr") is not None))
+
+    def capabilities(self):
+        return {"adapter": "paddleocr", "ready": self.available(), "persistent": True,
+                "loaded": self._pipeline is not None, "batchSize": self.batch_size,
+                "coordinateSpace": "corrected-page", "error": self.error, "fallback": "tesseract"}
 
     def extract(self, content: bytes, media_type: str) -> OCRResult:
         if media_type == "text/plain":
             return LocalOCR().extract(content, media_type)
         if not self.available():
-            return OCRResult("", 0, "paddle-local-models-required")
-        os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
-        import numpy as np
-        from paddleocr import PaddleOCR
+            result = LocalOCR().extract(content, media_type)
+            result.metrics.update({"fallbackFrom": "paddleocr", "error": "MODEL_UNAVAILABLE"})
+            return result
+        try:
+            import numpy as np
+            from .ocr_runtime import page_box
 
-        image = Image.open(io.BytesIO(content)).convert("RGB")
-        result = list(
-            PaddleOCR(
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                use_textline_orientation=False,
-                text_detection_model_dir=os.environ["EDGE_PADDLE_DETECTION_MODEL_DIR"],
-                text_recognition_model_dir=os.environ["EDGE_PADDLE_RECOGNITION_MODEL_DIR"],
-            ).predict(np.array(image))
-        )
-        lines, scores = [], []
-        for page in result:
-            for i, (text, score, poly) in enumerate(zip(page["rec_texts"], page["rec_scores"], page["rec_polys"])):
-                if not str(text).strip():
-                    continue
-                xs = [int(p[0]) for p in poly]
-                ys = [int(p[1]) for p in poly]
-                box = [max(0, min(xs)), max(0, min(ys)), max(1, max(xs) - min(xs)), max(1, max(ys) - min(ys))]
-                lines.append({"id": f"line_{i}", "text": str(text), "box": box, "confidence": float(score), "words": []})
-                scores.append(float(score))
-        lines.sort(key=lambda line: (line["box"][1], line["box"][0]))
-        return OCRResult(
-            "\n".join(line["text"] for line in lines),
-            sum(scores) / len(scores) if scores else 0,
-            "paddleocr",
-            lines,
-            image.width,
-            image.height,
-        )
+            os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
+            factory = self._factory
+            if factory is None:
+                from paddleocr import PaddleOCR
+                factory = PaddleOCR
+            with Image.open(io.BytesIO(content)) as source:
+                if source.width * source.height > 20_000_000:
+                    raise ValueError("Image too large")
+                image = source.convert("RGB")
+            with self._lock:
+                if self._pipeline is None:
+                    self._pipeline = factory(
+                        use_doc_orientation_classify=False,
+                        use_doc_unwarping=False,
+                        use_textline_orientation=False,
+                        text_detection_model_dir=self.detection_dir,
+                        text_recognition_model_dir=self.recognition_dir,
+                        text_recognition_batch_size=self.batch_size,
+                    )
+                result = list(self._pipeline.predict(np.array(image)[:, :, ::-1].copy()))
+            lines = []
+            for page in result:
+                if not len(page["rec_texts"]) == len(page["rec_scores"]) == len(page["rec_polys"]):
+                    raise ValueError("Recognition count mismatch")
+                for text, score, poly in zip(page["rec_texts"], page["rec_scores"], page["rec_polys"]):
+                    if not str(text).strip():
+                        continue
+                    if not np.isfinite(float(score)):
+                        raise ValueError("Invalid confidence")
+                    polygon, box = page_box(poly, image.width, image.height)
+                    lines.append({"text": str(text), "box": box, "polygon": polygon.tolist(),
+                                  "confidence": max(0.0, min(1.0, float(score))), "words": []})
+            lines.sort(key=lambda line: (line["box"][1], line["box"][0]))
+            for index, line in enumerate(lines):
+                line["id"] = f"line_{index}"
+            self.error = None
+            return OCRResult("\n".join(line["text"] for line in lines),
+                             sum(line["confidence"] for line in lines) / len(lines) if lines else 0,
+                             "paddleocr", lines, image.width, image.height,
+                             metrics={"coordinateSpace": "corrected-page", "batchSize": self.batch_size})
+        except Exception:
+            self.error = "INFERENCE_FAILED"
+            result = LocalOCR().extract(content, media_type)
+            result.metrics.update({"fallbackFrom": "paddleocr", "error": self.error})
+            return result
 
 
 def layout_from_tesseract(data: dict, column_gap_ratio: float = 2.0) -> list[dict]:
@@ -254,7 +296,6 @@ def _reduce_to_quad(contour):
 def _contour_quads(contour):
     """Page-shaped 4-gons from a contour: poly approximation, then min-area rect."""
     import cv2
-    import numpy as np
 
     quads = []
     poly = _reduce_to_quad(contour)
@@ -425,6 +466,86 @@ def find_page_quad(gray, min_area_fraction: float = 0.08):
     return best_quad
 
 
+def fit_page_quad_from_mask(gray, mask):
+    """Fit a page inside the segmentation ROI; no full-frame edge extraction."""
+    import cv2
+    import numpy as np
+
+    if gray is None or gray.size == 0 or mask is None:
+        return None
+    mask = np.asarray(mask)
+    if mask.ndim != 2 or mask.size == 0 or not np.isfinite(mask).all():
+        return None
+    binary = (mask > 0.5).astype(np.uint8) * 255
+    h, w = gray.shape[:2]
+    binary = cv2.resize(binary, (w, h), interpolation=cv2.INTER_NEAREST)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    binary.fill(0)
+    cv2.drawContours(binary, [contour], -1, 255, -1)
+    if not 0.06 <= np.count_nonzero(binary) / float(h * w) <= 0.78:
+        return None
+    radius = max(1, int(round(0.04 * min(h, w))))
+    roi = cv2.dilate(binary, np.ones((2 * radius + 1, 2 * radius + 1), np.uint8))
+    x, y, rw, rh = cv2.boundingRect(roi)
+    edges = cv2.Canny(gray[y:y + rh, x:x + rw], 40, 120)
+    edges[roi[y:y + rh, x:x + rw] == 0] = 0
+    edge_contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    candidates = _contour_quads(contour)
+    for edge in edge_contours:
+        if cv2.contourArea(edge) >= 0.06 * h * w:
+            candidates.extend(_contour_quads(edge + np.array([[[x, y]]], dtype=edge.dtype)))
+
+    def overlap(quad):
+        polygon = np.zeros_like(binary)
+        cv2.fillConvexPoly(polygon, np.round(quad).astype(np.int32), 255)
+        return np.count_nonzero((polygon > 0) & (binary > 0)) / max(1, np.count_nonzero((polygon > 0) | (binary > 0)))
+
+    best, best_score = None, float("-inf")
+    for quad in candidates:
+        agreement = overlap(quad)
+        if agreement < 0.72:
+            continue
+        score = _score_page_quad(gray, quad, 0.06)
+        if score is not None and score + agreement > best_score:
+            best, best_score = _order_corners(quad), score + agreement
+    if best is not None:
+        return best
+    rect = cv2.boxPoints(cv2.minAreaRect(contour))
+    area = max(cv2.contourArea(rect), 1)
+    # Segmentation can recognize dark paper that the classical brightness score rejects.
+    if area / (h * w) <= 0.78 and cv2.contourArea(contour) / area >= 0.72 and overlap(rect) >= 0.72:
+        rect[:, 0] = np.clip(rect[:, 0], 0, w - 1)
+        rect[:, 1] = np.clip(rect[:, 1], 0, h - 1)
+        ordered = _order_corners(rect)
+        if not (max(ordered[0, 1], ordered[1, 1]) <= 3 and abs(ordered[1, 0] - ordered[0, 0]) > 0.55 * w):
+            return ordered
+    return None
+
+
+def detect_page(frame_bgr, detector=None, *, preview=False):
+    """Shared fit, with classical fallback on unavailable models or failed stills."""
+    import cv2
+
+    gray = frame_bgr if frame_bgr.ndim == 2 else cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    detection = detector.infer(frame_bgr) if detector is not None else None
+    capability = detector.capabilities() if detector is not None else {"ready": False, "backend": "unavailable", "modelId": "unprovisioned"}
+    ready = capability["ready"]
+    metadata = {"backend": capability["backend"], "modelId": capability["modelId"], "score": None, "latencyMs": 0}
+    quad = None
+    if detection is not None:
+        metadata = detection.metadata()
+        if detection.score >= detector.score_min and (preview or detection.latencyMs <= 200):
+            quad = fit_page_quad_from_mask(gray, detection.mask)
+    if quad is None and (not preview or not ready):
+        quad = find_page_quad(gray)
+        metadata["fallback"] = "classical"
+    return quad, metadata
+
+
 # #FFD300 in BGR. Drawn only on the transient preview stream; capture/OCR always
 # see the unmodified camera buffer.
 PREVIEW_OVERLAY_BGR = (0, 211, 255)
@@ -458,8 +579,8 @@ class PageQuadTracker:
         return self.quad
 
 
-def detect_page_quad_for_preview(frame, max_width: int = PREVIEW_DETECT_MAX_WIDTH):
-    """Run `find_page_quad` on a downscaled copy and return corners in full-frame pixels.
+def detect_page_quad_for_preview(frame, max_width: int = PREVIEW_DETECT_MAX_WIDTH, detector=None):
+    """Detect on a downscaled copy and return corners in full-frame pixels.
 
     Preview is 15 fps on the RDK X5; detecting on a ~640 px-wide frame keeps the
     overlay on-device without stalling the MJPEG generator.
@@ -471,8 +592,7 @@ def detect_page_quad_for_preview(frame, max_width: int = PREVIEW_DETECT_MAX_WIDT
     h, w = frame.shape[:2]
     scale = min(1.0, max_width / float(w))
     small = frame if scale >= 1.0 else cv2.resize(frame, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
-    gray = small if small.ndim == 2 else cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-    quad = find_page_quad(gray)
+    quad, _ = detect_page(small, detector, preview=True)
     if quad is None:
         return None
     return quad / scale
@@ -505,12 +625,12 @@ def draw_page_overlay(
     return overlay
 
 
-def annotate_preview_frame(frame, tracker: PageQuadTracker | None = None):
+def annotate_preview_frame(frame, tracker: PageQuadTracker | None = None, detector=None):
     """Detect page edges on this camera frame and draw the live boundary box.
 
     Used only by `/preview/stream`. Capture still stores the raw sensor image.
     """
-    quad = detect_page_quad_for_preview(frame)
+    quad = detect_page_quad_for_preview(frame, detector=detector)
     if tracker is not None:
         quad = tracker.update(quad)
     if quad is None:
@@ -518,7 +638,7 @@ def annotate_preview_frame(frame, tracker: PageQuadTracker | None = None):
     return draw_page_overlay(frame, quad)
 
 
-def preprocess(content: bytes, policy: QualityPolicy = DEFAULT_POLICY) -> tuple[bytes, dict]:
+def preprocess(content: bytes, policy: QualityPolicy = DEFAULT_POLICY, detector=None) -> tuple[bytes, dict]:
     """Return the corrected page bytes and its quality/geometry record. The original is
     never modified; callers store both."""
     image = Image.open(io.BytesIO(content)).convert("RGB")
@@ -544,7 +664,7 @@ def preprocess(content: bytes, policy: QualityPolicy = DEFAULT_POLICY) -> tuple[
 
     frame = np.array(image)
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-    quad = find_page_quad(gray)
+    quad, page_metadata = detect_page(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR), detector)
     transform = np.eye(3)
     corrected = frame
     if quad is not None:
@@ -567,6 +687,7 @@ def preprocess(content: bytes, policy: QualityPolicy = DEFAULT_POLICY) -> tuple[
         "reasons": assessment.reasons,
         "metrics": assessment.metrics,
         "adapter": "opencv",
+        "pageDetector": page_metadata,
         "policyVersion": policy.version,
         "originalDimensions": [image.width, image.height],
         "correctedDimensions": [int(corrected.shape[1]), int(corrected.shape[0])],
