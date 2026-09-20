@@ -60,8 +60,8 @@ export function useCase(id: string) {
   return useLloydSnapshot((): Promise<CaseDetail> => getLloydApi().getCase(id), [id]);
 }
 
-export function useIntake() {
-  return useLloydSnapshot((): Promise<IntakeDocument> => getLloydApi().getIntake(), []);
+export function useIntake(caseId: string) {
+  return useLloydSnapshot((): Promise<IntakeDocument> => getLloydApi().getIntake(caseId), [caseId]);
 }
 
 export function useQueue(): { data: CaseListResponse | null } {

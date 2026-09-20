@@ -317,6 +317,12 @@ export interface ReleaseManifest {
   localRetentionUntil: string;
 }
 
+export interface ManifestField {
+  path: string;
+  classification: PrivacyClassification;
+  confidence: number;
+}
+
 export interface IntakeDocument {
   documentId: string;
   caseId: string;
@@ -329,6 +335,23 @@ export interface IntakeDocument {
   manifest: ReleaseManifest | null;
   released: boolean;
   approved: boolean;
+  /**
+   * Live RDK X5 capture only. The gateway never returns raw pixels or
+   * unredacted OCR text — only `originalText` (already sanitized) and this
+   * capture metadata. Undefined when running against `MockLloydApi`'s
+   * synthetic text fixture, which has no notion of a captured media type.
+   */
+  source?: "camera" | "fixture" | "upload";
+  mediaType?: "text/plain" | "image/png" | "image/jpeg";
+  sourceHash?: string;
+  /**
+   * Live-mode redaction detections. Unlike the mock's character-offset
+   * `spans`, the real gateway's manifest fields are path-labeled and
+   * deterministic (server-computed at `/redact` time) — they cannot be
+   * individually toggled through the wire contract, so the UI renders them
+   * read-only instead of as interactive checkboxes.
+   */
+  manifestFields?: ManifestField[];
 }
 
 export interface OutboundPayload {
@@ -356,9 +379,14 @@ export interface LloydApi {
   listGuidelines(query?: string): Promise<GuidelineClause[]>;
   getAnalytics(): Promise<AnalyticsSummary>;
   getActivity(): Promise<ActivityItem[]>;
-  getIntake(): Promise<IntakeDocument>;
-  captureIntake(): Promise<IntakeDocument>;
-  rescanIntake(): Promise<IntakeDocument>;
+  /**
+   * Intake is scoped to the case the document will be attached to. Only the
+   * entry points that start a document take a `caseId`; the stages after
+   * capture operate on whatever document that adapter instance has in flight.
+   */
+  getIntake(caseId: string): Promise<IntakeDocument>;
+  captureIntake(caseId: string): Promise<IntakeDocument>;
+  rescanIntake(caseId: string): Promise<IntakeDocument>;
   advanceIntakeProcessing(): Promise<IntakeDocument>;
   toggleRedaction(spanId: string, enabled: boolean): Promise<IntakeDocument>;
   addManualRedaction(start: number, end: number, type: SensitiveFieldType): Promise<IntakeDocument>;

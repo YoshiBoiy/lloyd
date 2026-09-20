@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
+import { ScanLine } from "lucide-react";
 import { getLloydApi } from "@/lib/api";
 import { useCase } from "@/lib/hooks";
 import { formatPercent, formatScore, formatTimestamp, formatUsdExact } from "@/lib/format";
@@ -169,7 +170,18 @@ export function CaseWorkspace({ id }: { id: string }) {
           </Panel>
         </div>
         <div className="space-y-3">
-          <Panel title="Evidence">
+          <Panel
+            title="Evidence"
+            actions={
+              <Link
+                href={`/cases/${encodeURIComponent(data.id)}/intake`}
+                className="inline-flex items-center gap-1.5 text-[12px] text-navy underline decoration-line underline-offset-4 transition-colors duration-150 ease-out hover:text-navy-2"
+              >
+                <ScanLine size={13} strokeWidth={1.75} />
+                Scan supporting document
+              </Link>
+            }
+          >
             <ul className="space-y-2">
               {data.evidence.map((item) => (
                 <li key={item.evidenceId} className="border-b border-line pb-2 last:border-0">
@@ -182,6 +194,12 @@ export function CaseWorkspace({ id }: { id: string }) {
                 </li>
               ))}
             </ul>
+            {data.intakeDocumentId ? (
+              <p className="mt-2 border-t border-line pt-2 text-[11px] text-muted">
+                Sanitized scan attached: <span className="tabular">{data.intakeDocumentId}</span>. The original stays on
+                the RDK X5; rescanning replaces this attachment.
+              </p>
+            ) : null}
           </Panel>
           {data.authenticity ? <AuthenticityReview detail={data} busy={busy} onAction={(state) => run(() => getLloydApi().updateAuthenticity(data.id, state))} /> : null}
           <SimilarCases cases={data.similarCases} />

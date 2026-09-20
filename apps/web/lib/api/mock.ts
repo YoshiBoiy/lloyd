@@ -28,6 +28,7 @@ import { createAnalytics } from "../fixtures/analytics";
 import { DEMO_INVESTIGATION_STEPS } from "../fixtures/investigation";
 import {
   DEFAULT_DESTINATIONS,
+  DEMO_CASE_ID,
   buildSourceHash,
   computeRedactionConfidence,
   createIntakeDocument,
@@ -359,22 +360,25 @@ export class MockLloydApi implements LloydApi {
     return clone(this.activity);
   }
 
-  async getIntake(): Promise<IntakeDocument> {
+  async getIntake(caseId: string): Promise<IntakeDocument> {
     await wait(this.latencyMs / 2);
+    this.scopeIntake(caseId);
     this.syncIntakeConfidence();
     return clone(this.intake);
   }
 
-  async captureIntake(): Promise<IntakeDocument> {
+  async captureIntake(caseId: string): Promise<IntakeDocument> {
     await wait(this.latencyMs);
+    this.scopeIntake(caseId);
     this.intake.stage = "captured";
     this.intake.quality = { blur: 0.93, glare: 0.88, framing: 0.91, ocrConfidence: 0.94 };
     this.notify();
     return clone(this.intake);
   }
 
-  async rescanIntake(): Promise<IntakeDocument> {
+  async rescanIntake(caseId: string): Promise<IntakeDocument> {
     await wait(this.latencyMs);
+    this.scopeIntake(caseId);
     this.intake.stage = "captured";
     this.intake.quality = { blur: 0.96, glare: 0.94, framing: 0.97, ocrConfidence: 0.96 };
     this.intake.released = false;
@@ -494,6 +498,9 @@ export class MockLloydApi implements LloydApi {
       },
     };
 
+    const target = this.cases.get(this.intake.caseId);
+    if (target) target.intakeDocumentId = this.intake.documentId;
+
     this.analyticsReleased += 1;
     this.analyticsAvoided += 2;
     this.pushActivity("RDK X5", "Sanitized inspection released to approved destinations.", "system");
@@ -532,6 +539,21 @@ export class MockLloydApi implements LloydApi {
     const found = this.risks.get(id);
     if (!found) throw new Error(`Risk not found: ${id}`);
     return found;
+  }
+
+  /**
+   * The demo keeps a single synthetic document in flight, so pointing intake
+   * at another case restarts it there instead of re-labelling a document that
+   * is already partway through the previous case's pipeline.
+   */
+  private scopeIntake(caseId: string) {
+    if (!caseId || this.intake.caseId === caseId) return;
+    const fixture = createIntakeDocument();
+    this.intake = {
+      ...fixture,
+      caseId,
+      documentId: caseId === DEMO_CASE_ID ? fixture.documentId : `doc:${caseId}-scan`,
+    };
   }
 
   private syncIntakeConfidence() {
